@@ -21,6 +21,8 @@ Many on-screen keyboards have issues under Wayland:
 - **Dark design** - Modern iOS-style buttons with 3D shadow effect
 - **Adjustable opacity** - Set transparency (50%-100%) via tray menu
 - **Multiple layouts** - German (DE), English UK, English US
+- **Word suggestions** - Tap a suggestion to finish the word (English and German word lists; add your own in `~/.config/osk/words-en.txt` / `words-de.txt`)
+- **Key repeat** - Hold a key to repeat it, using KDE's repeat settings
 - **Layout switching** - Button in title bar or via tray menu
 - **Scalable** - Three sizes: S (100%), M (120%), B (160%)
 - **Monitor switching** - Move active window between monitors

@@ -254,7 +254,7 @@ class VirtualKeyboard(QWidget):
 
         # Base dimensions
         self._base_width = 900
-        self._base_height = 312
+        self._base_height = 348  # 312 for the keys + 36 for the suggestion bar
 
         # Position at bottom and apply scale
         self._position_at_bottom()

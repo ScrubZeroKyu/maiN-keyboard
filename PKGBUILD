@@ -26,10 +26,13 @@ package() {
     install -Dm755 main.py "$pkgdir/usr/share/$pkgname/main.py"
     install -Dm644 keyboard.py "$pkgdir/usr/share/$pkgname/keyboard.py"
     install -Dm644 input_emitter.py "$pkgdir/usr/share/$pkgname/input_emitter.py"
+    install -Dm644 suggestions.py "$pkgdir/usr/share/$pkgname/suggestions.py"
     install -Dm644 layouts/__init__.py "$pkgdir/usr/share/$pkgname/layouts/__init__.py"
     install -Dm644 layouts/de.py "$pkgdir/usr/share/$pkgname/layouts/de.py"
     install -Dm644 layouts/uk.py "$pkgdir/usr/share/$pkgname/layouts/uk.py"
     install -Dm644 layouts/us.py "$pkgdir/usr/share/$pkgname/layouts/us.py"
+    install -Dm644 words/en.txt "$pkgdir/usr/share/$pkgname/words/en.txt"
+    install -Dm644 words/de.txt "$pkgdir/usr/share/$pkgname/words/de.txt"
 
     # Install launcher script
     install -Dm755 /dev/stdin "$pkgdir/usr/bin/main-keyboard" << EOF

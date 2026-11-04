@@ -1,6 +1,7 @@
 """Virtual keyboard widget with PyQt6."""
 
 import importlib
+import time
 
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QSizePolicy, QVBoxLayout, QHBoxLayout
@@ -10,6 +11,7 @@ from PyQt6.QtGui import QFont
 from evdev import ecodes
 
 from input_emitter import InputEmitter
+from suggestions import WordList
 
 AVAILABLE_LAYOUTS = ['de', 'uk', 'us']
 
@@ -51,6 +53,21 @@ class KeyButton(QPushButton):
             self.setText(label.replace("&", "&&"))
 
 
+class SuggestionButton(QPushButton):
+    """A word suggestion in the bar above the keys."""
+
+    def __init__(self, parent=None):
+        super().__init__('', parent)
+        self.word = ''
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+    def set_word(self, word: str):
+        self.word = word
+        self.setText(word)
+        self.setEnabled(bool(word))
+
+
 class KeyboardWidget(QWidget):
     """The main virtual keyboard widget."""
 
@@ -78,12 +95,34 @@ class KeyboardWidget(QWidget):
             background-color: #6a8fba;
             border-bottom: 3px solid #4a6f9a;
         }
+        SuggestionButton {
+            background-color: transparent;
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            padding: 2px 8px;
+        }
+        SuggestionButton:hover {
+            background-color: #3a3a3c;
+        }
+        SuggestionButton:pressed {
+            background-color: #2a2a2c;
+        }
         QWidget {
             background-color: #131315;
         }
     """
 
     BASE_FONT_SIZE = 14
+    SUGGESTION_COUNT = 3
+    SUGGESTION_BAR_HEIGHT = 36
+
+    # A key held this long may have been repeated by the system, so we can
+    # no longer tell how many characters it typed.
+    REPEAT_GUARD_SECONDS = 0.5
+
+    # Keys that end the current word
+    WORD_BREAK_KEYS = {ecodes.KEY_SPACE, ecodes.KEY_ENTER, ecodes.KEY_TAB}
 
     def __init__(self, layout='de', parent=None):
         super().__init__(parent)
@@ -95,10 +134,20 @@ class KeyboardWidget(QWidget):
         self.current_layout = layout
         self._current_scale = 1.0
 
+        # Word currently being typed. None means unknown (e.g. after the
+        # cursor moved), in which case nothing is suggested until the next
+        # word break.
+        self.current_word: str | None = ''
+        self._char_map: dict[str, tuple[int, bool]] = {}
+        self._press_state: dict[int, tuple[str | None, float, bool]] = {}
+        self._word_list = WordList.for_layout(layout)
+
         # Main layout holds the keyboard container
         self._main_layout = QVBoxLayout(self)
         self._main_layout.setContentsMargins(0, 0, 0, 0)
         self._main_layout.setSpacing(0)
+
+        self._build_suggestion_bar()
 
         # Container widget for keyboard keys
         self._container = None
@@ -121,7 +170,9 @@ class KeyboardWidget(QWidget):
 
         self.current_layout = name
         self._load_layout(name)
+        self._word_list = WordList.for_layout(name)
         self._rebuild_keyboard()
+        self._set_current_word('')
         self.layout_changed.emit(name)
 
     def _rebuild_keyboard(self):
@@ -142,8 +193,42 @@ class KeyboardWidget(QWidget):
         self._build_keyboard()
         self.set_scale(self._current_scale)
 
+    def _build_suggestion_bar(self):
+        """Build the row of word suggestions above the keys."""
+        self._suggestion_bar = QWidget()
+        self._suggestion_bar.setFixedHeight(self.SUGGESTION_BAR_HEIGHT)
+        bar_layout = QHBoxLayout(self._suggestion_bar)
+        bar_layout.setContentsMargins(8, 4, 8, 0)
+        bar_layout.setSpacing(4)
+
+        self.suggestion_buttons: list[SuggestionButton] = []
+        for _ in range(self.SUGGESTION_COUNT):
+            btn = SuggestionButton()
+            btn.clicked.connect(lambda checked, b=btn: self._on_suggestion_clicked(b))
+            bar_layout.addWidget(btn)
+            self.suggestion_buttons.append(btn)
+
+        self._main_layout.addWidget(self._suggestion_bar)
+        self._update_suggestions()
+
+    def _build_char_map(self):
+        """Map each typeable character to its (keycode, needs_shift)."""
+        self._char_map = {' ': (ecodes.KEY_SPACE, False)}
+        for row_data in self.LAYOUT:
+            for normal, shifted, keycode in row_data:
+                # Character keys have different shifted labels; special
+                # keys (Tab, arrows, ...) don't.
+                if keycode in self.MODIFIER_KEYS or normal == shifted:
+                    continue
+                if len(normal) == 1:
+                    self._char_map.setdefault(normal, (keycode, False))
+                if len(shifted) == 1:
+                    self._char_map.setdefault(shifted, (keycode, True))
+
     def _build_keyboard(self):
         """Build the keyboard UI in a container widget."""
+        self._build_char_map()
+
         self._container = QWidget()
         container_layout = QVBoxLayout(self._container)
         container_layout.setSpacing(4)
@@ -171,7 +256,8 @@ class KeyboardWidget(QWidget):
         """Scale the font size of all buttons."""
         self._current_scale = factor
         new_size = int(self.BASE_FONT_SIZE * factor)
-        for btn in self.buttons:
+        self._suggestion_bar.setFixedHeight(int(self.SUGGESTION_BAR_HEIGHT * factor))
+        for btn in self.buttons + self.suggestion_buttons:
             font = btn.font()
             font.setPointSize(new_size)
             btn.setFont(font)
@@ -203,11 +289,18 @@ class KeyboardWidget(QWidget):
         else:
             apply_shift = self.shift_active
 
+        label = button.shifted_label if apply_shift else button.normal_label
+        typed = label if len(label) == 1 and button.normal_label != button.shifted_label else None
+        modified = any(self.emitter.is_modifier_active(k)
+                       for k in (ecodes.KEY_LEFTCTRL, ecodes.KEY_LEFTALT, ecodes.KEY_RIGHTALT))
+        self._press_state[button.keycode] = (typed, time.monotonic(), modified)
+
         self.emitter.key_down(button.keycode, with_shift=apply_shift)
 
     def _on_key_released(self, button: KeyButton):
         """Send key-up for a regular key, then clear one-shot modifiers."""
         self.emitter.key_up(button.keycode)
+        self._track_word(button.keycode)
 
         if self.shift_active:
             self.shift_active = False
@@ -216,6 +309,69 @@ class KeyboardWidget(QWidget):
 
         self.emitter.release_all_modifiers()
         self._update_ctrl_alt_buttons()
+
+    def _track_word(self, keycode: int):
+        """Update the current word after a key was typed."""
+        state = self._press_state.pop(keycode, None)
+        if state is None:
+            return
+        typed, pressed_at, modified = state
+        repeated = time.monotonic() - pressed_at >= self.REPEAT_GUARD_SECONDS
+        word = self.current_word
+
+        if keycode in self.WORD_BREAK_KEYS:
+            word = ''
+        elif modified or repeated:
+            # Shortcut (Ctrl+V, AltGr chars, ...) or possibly repeated key
+            word = None
+        elif keycode == ecodes.KEY_BACKSPACE:
+            # Deleting past the start of the word lands in unknown text
+            word = word[:-1] if word else None
+        elif typed is not None and typed.isalpha():
+            if word is not None:
+                word += typed
+        elif typed is not None:
+            # Digits and punctuation end the word
+            word = ''
+        else:
+            # Arrows and other navigation keys move the cursor
+            word = None
+
+        self._set_current_word(word)
+
+    def _set_current_word(self, word: str | None):
+        self.current_word = word
+        self._update_suggestions()
+
+    def _update_suggestions(self):
+        """Refresh the suggestion bar for the current word."""
+        words = []
+        if self.current_word:
+            words = self._word_list.complete(
+                self.current_word, set(self._char_map), self.SUGGESTION_COUNT)
+        for i, btn in enumerate(self.suggestion_buttons):
+            btn.set_word(words[i] if i < len(words) else '')
+
+    def _on_suggestion_clicked(self, button: SuggestionButton):
+        """Type the rest of the suggested word plus a space."""
+        prefix = self.current_word
+        if not button.word or not prefix or not button.word.startswith(prefix):
+            return
+
+        # Sticky Ctrl/Alt would turn the letters into shortcuts
+        self.emitter.release_all_modifiers()
+        self._update_ctrl_alt_buttons()
+
+        for ch in button.word[len(prefix):] + ' ':
+            keycode, with_shift = self._char_map[ch]
+            self.emitter.send_key(keycode, with_shift=with_shift)
+
+        if self.shift_active:
+            self.shift_active = False
+            self._update_shift_buttons(False)
+            self._update_all_labels()
+
+        self._set_current_word('')
 
     def _update_modifier_state(self, button: KeyButton, active: bool):
         """Update visual state of a modifier button."""

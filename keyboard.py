@@ -32,12 +32,12 @@ class KeyButton(QPushButton):
         self.keycode = keycode
         self.is_modifier = keycode in modifier_keys
 
-        base_width = 50
-        width_multiplier = wide_keys.get(keycode, 1.0)
-        self.key_width = int(base_width * width_multiplier)
+        # Relative width; the row layout shares space by these stretch factors
+        self.width_multiplier = wide_keys.get(keycode, 1.0)
 
-        self.setMinimumSize(QSize(self.key_width, 50))
-        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
+        # Ignore the text size hint so keys shrink and grow with the window
+        self.setMinimumSize(QSize(8, 8))
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
 
         font = QFont()
         font.setPointSize(14)
@@ -74,32 +74,31 @@ class KeyboardWidget(QWidget):
     layout_changed = pyqtSignal(str)
 
     BASE_STYLE = """
+        QWidget {
+            background-color: #131315;
+        }
         KeyButton {
             background-color: #4a4a4c;
             color: #ffffff;
             border: none;
-            border-bottom: 3px solid #2a2a2c;
-            border-radius: 8px;
-            padding: 5px;
+            border-radius: 0px;
+            padding: 2px;
             margin: 2px;
         }
         KeyButton:hover {
             background-color: #5a5a5c;
         }
         KeyButton:pressed {
-            background-color: #3a3a3c;
-            border-bottom: 1px solid #2a2a2c;
-            margin-top: 4px;
+            background-color: #1f3a70;
         }
         KeyButton[active="true"] {
             background-color: #6a8fba;
-            border-bottom: 3px solid #4a6f9a;
         }
         SuggestionButton {
             background-color: transparent;
             color: #ffffff;
             border: none;
-            border-radius: 6px;
+            border-radius: 0px;
             padding: 2px 8px;
         }
         SuggestionButton:hover {
@@ -107,9 +106,6 @@ class KeyboardWidget(QWidget):
         }
         SuggestionButton:pressed {
             background-color: #2a2a2c;
-        }
-        QWidget {
-            background-color: #131315;
         }
     """
 
@@ -245,10 +241,10 @@ class KeyboardWidget(QWidget):
                 else:
                     btn.pressed.connect(lambda b=btn: self._on_key_pressed(b))
                     btn.released.connect(lambda b=btn: self._on_key_released(b))
-                row_layout.addWidget(btn)
+                row_layout.addWidget(btn, stretch=int(btn.width_multiplier * 100))
                 self.buttons.append(btn)
 
-            container_layout.addLayout(row_layout)
+            container_layout.addLayout(row_layout, stretch=1)
 
         self._main_layout.addWidget(self._container)
 

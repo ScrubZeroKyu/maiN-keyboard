@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QLabel, QPushButton,
     QSystemTrayIcon, QMenu
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QObject, QEvent, QRect
 from PyQt6.QtGui import QGuiApplication, QIcon, QAction, QActionGroup
 
 from keyboard import KeyboardWidget, AVAILABLE_LAYOUTS, LAYOUT_NAMES
@@ -141,30 +141,6 @@ class TitleBar(QWidget):
         self.layout_btn.clicked.connect(self._on_layout_cycle)
         layout.addWidget(self.layout_btn)
 
-        # Separator
-        sep2 = QWidget()
-        sep2.setFixedWidth(10)
-        layout.addWidget(sep2)
-
-        # Scale buttons
-        self.scale_s_btn = QPushButton("S")
-        self.scale_s_btn.setFixedSize(40, 32)
-        self.scale_s_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.scale_s_btn.clicked.connect(lambda: self._on_scale(1.0))
-        layout.addWidget(self.scale_s_btn)
-
-        self.scale_m_btn = QPushButton("M")
-        self.scale_m_btn.setFixedSize(40, 32)
-        self.scale_m_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.scale_m_btn.clicked.connect(lambda: self._on_scale(1.2))
-        layout.addWidget(self.scale_m_btn)
-
-        self.scale_b_btn = QPushButton("B")
-        self.scale_b_btn.setFixedSize(40, 32)
-        self.scale_b_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.scale_b_btn.clicked.connect(lambda: self._on_scale(1.6))
-        layout.addWidget(self.scale_b_btn)
-
         # Close button
         self.close_btn = QPushButton("✕")
         self.close_btn.setObjectName("close_btn")
@@ -185,10 +161,6 @@ class TitleBar(QWidget):
     def _on_close(self):
         self.window_parent.hide()
 
-    def _on_scale(self, factor):
-        if self.window_parent:
-            self.window_parent.set_scale(factor)
-
     def _on_move_monitor(self, direction):
         if self.window_parent:
             self.window_parent.keyboard.move_window_to_monitor(direction)
@@ -207,8 +179,121 @@ class TitleBar(QWidget):
         self._drag_pos = None
 
 
+class EdgeResizer(QObject):
+    """
+    Lets the user resize the frameless window by dragging its edges or
+    corners. The window bypasses the window manager, so KDE can't resize
+    it for us. Installed as an application-wide event filter so it sees
+    presses over child widgets too.
+    """
+
+    EDGE = 8  # px from the window border that count as a resize handle
+
+    CURSORS = {
+        Qt.Edge.LeftEdge: Qt.CursorShape.SizeHorCursor,
+        Qt.Edge.RightEdge: Qt.CursorShape.SizeHorCursor,
+        Qt.Edge.TopEdge: Qt.CursorShape.SizeVerCursor,
+        Qt.Edge.BottomEdge: Qt.CursorShape.SizeVerCursor,
+        Qt.Edge.LeftEdge | Qt.Edge.TopEdge: Qt.CursorShape.SizeFDiagCursor,
+        Qt.Edge.RightEdge | Qt.Edge.BottomEdge: Qt.CursorShape.SizeFDiagCursor,
+        Qt.Edge.RightEdge | Qt.Edge.TopEdge: Qt.CursorShape.SizeBDiagCursor,
+        Qt.Edge.LeftEdge | Qt.Edge.BottomEdge: Qt.CursorShape.SizeBDiagCursor,
+    }
+
+    def __init__(self, window: QWidget, on_finished=None):
+        super().__init__(window)
+        self.window = window
+        self.on_finished = on_finished
+        self._edges = Qt.Edge(0)
+        self._start_pos = None
+        self._start_geo = None
+
+    def _edges_at(self, global_pos) -> Qt.Edge:
+        geo = self.window.frameGeometry()
+        x = global_pos.x() - geo.x()
+        y = global_pos.y() - geo.y()
+        if not (0 <= x < geo.width() and 0 <= y < geo.height()):
+            return Qt.Edge(0)
+        edges = Qt.Edge(0)
+        if x < self.EDGE:
+            edges |= Qt.Edge.LeftEdge
+        elif x >= geo.width() - self.EDGE:
+            edges |= Qt.Edge.RightEdge
+        if y < self.EDGE:
+            edges |= Qt.Edge.TopEdge
+        elif y >= geo.height() - self.EDGE:
+            edges |= Qt.Edge.BottomEdge
+        return edges
+
+    def _resize_to(self, global_pos):
+        dx = global_pos.x() - self._start_pos.x()
+        dy = global_pos.y() - self._start_pos.y()
+        g = QRect(self._start_geo)
+        min_w = self.window.minimumWidth()
+        min_h = self.window.minimumHeight()
+
+        if self._edges & Qt.Edge.LeftEdge:
+            g.setLeft(min(g.left() + dx, g.right() - min_w + 1))
+        if self._edges & Qt.Edge.RightEdge:
+            g.setRight(max(g.right() + dx, g.left() + min_w - 1))
+        if self._edges & Qt.Edge.TopEdge:
+            g.setTop(min(g.top() + dy, g.bottom() - min_h + 1))
+        if self._edges & Qt.Edge.BottomEdge:
+            g.setBottom(max(g.bottom() + dy, g.top() + min_h - 1))
+
+        self.window.setGeometry(g)
+
+    def eventFilter(self, obj, event):
+        etype = event.type()
+        if etype not in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseMove,
+                         QEvent.Type.HoverMove, QEvent.Type.MouseButtonRelease):
+            return False
+        if not isinstance(obj, QWidget) or obj.window() is not self.window:
+            return False
+
+        pos = event.globalPosition().toPoint()
+
+        if self._start_pos is not None:
+            if etype == QEvent.Type.MouseMove:
+                self._resize_to(pos)
+                return True
+            if etype == QEvent.Type.MouseButtonRelease:
+                self._start_pos = None
+                self.window.unsetCursor()
+                if self.on_finished:
+                    self.on_finished()
+                return True
+            return etype == QEvent.Type.MouseButtonPress
+
+        edges = self._edges_at(pos)
+
+        if etype == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton and edges:
+            self._edges = edges
+            self._start_pos = pos
+            self._start_geo = self.window.geometry()
+            return True
+
+        if etype in (QEvent.Type.MouseMove, QEvent.Type.HoverMove) and not event_has_buttons(event):
+            if edges:
+                self.window.setCursor(self.CURSORS[edges])
+            else:
+                self.window.unsetCursor()
+
+        return False
+
+
+def event_has_buttons(event) -> bool:
+    """True if a mouse button is held during this event."""
+    return hasattr(event, 'buttons') and event.buttons() != Qt.MouseButton.NoButton
+
+
 class VirtualKeyboard(QWidget):
     """Main window for the virtual keyboard."""
+
+    # Default size (the old "S" size); the smallest allowed is half of it
+    BASE_WIDTH = 900
+    BASE_HEIGHT = 348
+    MIN_FACTOR = 0.5
 
     def __init__(self):
         super().__init__()
@@ -228,7 +313,10 @@ class VirtualKeyboard(QWidget):
 
         # Load saved settings
         config = load_config()
-        self._current_scale = config.get('scale', 1.0)
+        # Older versions saved a scale factor instead of a size
+        old_scale = config.get('scale', 1.0)
+        self._saved_width = config.get('width', int(self.BASE_WIDTH * old_scale))
+        self._saved_height = config.get('height', int(self.BASE_HEIGHT * old_scale))
         self._current_layout = config.get('layout', 'de')
         self._current_opacity = config.get('opacity', 1.0)
 
@@ -252,13 +340,13 @@ class VirtualKeyboard(QWidget):
         # Styling
         self.setStyleSheet("background-color: #131315; border-radius: 8px;")
 
-        # Base dimensions
-        self._base_width = 900
-        self._base_height = 348  # 312 for the keys + 36 for the suggestion bar
+        # Resizable by dragging the edges, down to half the default size
+        self.setMinimumSize(int(self.BASE_WIDTH * self.MIN_FACTOR),
+                            int(self.BASE_HEIGHT * self.MIN_FACTOR))
+        self._resizer = EdgeResizer(self, on_finished=self._save_size)
+        QApplication.instance().installEventFilter(self._resizer)
 
-        # Position at bottom and apply scale
         self._position_at_bottom()
-        self.keyboard.set_scale(self._current_scale)
         self.setWindowOpacity(self._current_opacity)
 
         # Tray menu actions (will be set by main())
@@ -269,6 +357,7 @@ class VirtualKeyboard(QWidget):
         """Handle layout change from keyboard widget."""
         self._current_layout = layout_name
         self.title_bar.update_layout_button(layout_name)
+        self._enable_mouse_tracking()
 
         # Update tray menu checkmarks
         for name, action in self.layout_actions.items():
@@ -290,17 +379,34 @@ class VirtualKeyboard(QWidget):
         screen = QGuiApplication.primaryScreen()
         if screen:
             geo = screen.availableGeometry()
-            width = min(int(self._base_width * self._current_scale), geo.width() - 40)
-            height = int(self._base_height * self._current_scale)
+            width = max(self.minimumWidth(), min(self._saved_width, geo.width() - 40))
+            height = max(self.minimumHeight(), min(self._saved_height, geo.height() - 58))
             x = geo.x() + (geo.width() - width) // 2
             y = geo.y() + geo.height() - height - 58
             self.setGeometry(x, y, width, height)
 
-    def set_scale(self, factor):
-        """Scale the keyboard to the given factor."""
-        self._current_scale = factor
-        self._position_at_bottom()
-        self.keyboard.set_scale(factor)
+    def resizeEvent(self, event):
+        """Scale key labels with the window size."""
+        factor = min(self.width() / self.BASE_WIDTH, self.height() / self.BASE_HEIGHT)
+        self.keyboard.set_scale(max(self.MIN_FACTOR, factor))
+        super().resizeEvent(event)
+
+    def showEvent(self, event):
+        self._enable_mouse_tracking()
+        super().showEvent(event)
+
+    def _enable_mouse_tracking(self):
+        """Needed so hovering an edge shows the resize cursor."""
+        self.setMouseTracking(True)
+        for child in self.findChildren(QWidget):
+            child.setMouseTracking(True)
+
+    def _save_size(self):
+        config = load_config()
+        config['width'] = self.width()
+        config['height'] = self.height()
+        config.pop('scale', None)
+        save_config(config)
 
     def set_opacity(self, opacity: float):
         """Set the window opacity and save to config."""
@@ -323,7 +429,9 @@ class VirtualKeyboard(QWidget):
     def hideEvent(self, event):
         """Save settings when hiding."""
         config = load_config()
-        config['scale'] = self._current_scale
+        config['width'] = self.width()
+        config['height'] = self.height()
+        config.pop('scale', None)
         config['layout'] = self._current_layout
         save_config(config)
         super().hideEvent(event)

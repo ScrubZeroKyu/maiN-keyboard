@@ -24,7 +24,7 @@ Many on-screen keyboards have issues under Wayland:
 - **Word suggestions** - Tap a suggestion to finish the word (English and German word lists; add your own in `~/.config/osk/words-en.txt` / `words-de.txt`)
 - **Key repeat** - Hold a key to repeat it, using KDE's repeat settings
 - **Layout switching** - Button in title bar or via tray menu
-- **Scalable** - Three sizes: S (100%), M (120%), B (160%)
+- **Resizable** - Drag any edge or corner to resize (down to half the default size)
 - **Monitor switching** - Move active window between monitors
 - **System Tray** - Minimizes to taskbar
 - **Saves settings** - Remembers size, layout, and opacity
@@ -92,7 +92,7 @@ sudo udevadm trigger
 |--------|-------------|
 | **Drag title bar** | Move window |
 | **DE / UK / US** | Switch keyboard layout |
-| **S / M / B** | Change size (Small/Medium/Big) |
+| **Drag window edge or corner** | Resize keyboard |
 | **<- / ->** | Move active window to other monitor |
 | **✕** | Minimize to system tray |
 | **Tray icon left-click** | Show/hide keyboard |

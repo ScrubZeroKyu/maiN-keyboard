@@ -31,6 +31,7 @@ package() {
     install -Dm644 layouts/de.py "$pkgdir/usr/share/$pkgname/layouts/de.py"
     install -Dm644 layouts/uk.py "$pkgdir/usr/share/$pkgname/layouts/uk.py"
     install -Dm644 layouts/us.py "$pkgdir/usr/share/$pkgname/layouts/us.py"
+    install -Dm644 layouts/common.py "$pkgdir/usr/share/$pkgname/layouts/common.py"
     install -Dm644 words/en.txt "$pkgdir/usr/share/$pkgname/words/en.txt"
     install -Dm644 words/de.txt "$pkgdir/usr/share/$pkgname/words/de.txt"
 

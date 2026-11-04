@@ -6,7 +6,7 @@ import time
 from PyQt6.QtWidgets import (
     QWidget, QPushButton, QSizePolicy, QVBoxLayout, QHBoxLayout
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont
 from evdev import ecodes
 
@@ -25,19 +25,16 @@ LAYOUT_NAMES = {
 class KeyButton(QPushButton):
     """A single key button on the virtual keyboard."""
 
-    def __init__(self, normal: str, shifted: str, keycode: int, modifier_keys: set, wide_keys: dict, parent=None):
+    def __init__(self, normal: str, shifted: str, keycode: int, modifier_keys: set,
+                 fn_key: tuple[str, int] | None = None, parent=None):
         super().__init__(normal, parent)
         self.normal_label = normal
         self.shifted_label = shifted
         self.keycode = keycode
         self.is_modifier = keycode in modifier_keys
-
-        # Relative width; the row layout shares space by these stretch factors
-        self.width_multiplier = wide_keys.get(keycode, 1.0)
-
-        # Ignore the text size hint so keys shrink and grow with the window
-        self.setMinimumSize(QSize(8, 8))
-        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Ignored)
+        # (label, keycode) used while Fn is on, e.g. ('F1', KEY_F1)
+        self.fn_key = fn_key
+        self.fn_active = False
 
         font = QFont()
         font.setPointSize(14)
@@ -45,12 +42,61 @@ class KeyButton(QPushButton):
 
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
-    def update_label(self, shift_active: bool):
-        """Update button label based on shift state."""
-        if not self.is_modifier:
+    def current_keycode(self) -> int:
+        """Keycode to send, taking Fn into account."""
+        if self.fn_active and self.fn_key:
+            return self.fn_key[1]
+        return self.keycode
+
+    def update_label(self, shift_active: bool, fn_active: bool = False):
+        """Update button label based on shift and Fn state."""
+        self.fn_active = fn_active
+        if self.fn_active and self.fn_key:
+            self.setText(self.fn_key[0])
+        elif not self.is_modifier:
             label = self.shifted_label if shift_active else self.normal_label
             # Qt interprets single '&' as a mnemonic; escape it to '&&' to display literal text.
             self.setText(label.replace("&", "&&"))
+
+
+class KeyArea(QWidget):
+    """
+    Places keys at exact positions measured in key units, so rows line
+    up like a real keyboard and keys can span several rows.
+    """
+
+    def __init__(self, margin: int, gap: int, on_resized=None, parent=None):
+        super().__init__(parent)
+        self.margin = margin
+        self.gap = gap
+        self.on_resized = on_resized
+        # (button, x, row, width, height) in key units / rows
+        self.placements: list[tuple[QPushButton, float, int, float, int]] = []
+        self.total_units = 1.0
+        self.total_rows = 1
+        self.unit_w = 0.0
+        self.row_h = 0.0
+
+    def place(self, button, x: float, row: int, width: float, height: int = 1):
+        button.setParent(self)
+        self.placements.append((button, x, row, width, height))
+        self.total_units = max(self.total_units, x + width)
+        self.total_rows = max(self.total_rows, row + height)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        m, gap = self.margin, self.gap
+        # One gap per key is taken off its right/bottom edge
+        self.unit_w = (self.width() - 2 * m + gap) / self.total_units
+        self.row_h = (self.height() - 2 * m + gap) / self.total_rows
+        for button, x, row, width, height in self.placements:
+            left = round(m + x * self.unit_w)
+            right = round(m + (x + width) * self.unit_w) - gap
+            top = round(m + row * self.row_h)
+            bottom = round(m + (row + height) * self.row_h) - gap
+            button.setGeometry(left, top, max(1, right - left), max(1, bottom - top))
+        if self.on_resized:
+            self.on_resized()
 
 
 class SuggestionButton(QPushButton):
@@ -125,12 +171,22 @@ class KeyboardWidget(QWidget):
     # Keys that end the current word
     WORD_BREAK_KEYS = {ecodes.KEY_SPACE, ecodes.KEY_ENTER, ecodes.KEY_TAB}
 
+    # Modifiers held on the virtual device until the next regular key
+    STICKY_MODIFIERS = {
+        ecodes.KEY_LEFTCTRL, ecodes.KEY_RIGHTCTRL,
+        ecodes.KEY_LEFTALT, ecodes.KEY_RIGHTALT,
+        ecodes.KEY_LEFTMETA,
+    }
+
+    SIDE_BLOCK_GAP = 0.5  # units between the main keys and the side block
+
     def __init__(self, layout='de', parent=None):
         super().__init__(parent)
 
         self.emitter = InputEmitter()
         self.shift_active = False
         self.caps_active = False
+        self.fn_active = False
         self.buttons: list[KeyButton] = []
         self.current_layout = layout
         self._current_scale = 1.0
@@ -140,7 +196,8 @@ class KeyboardWidget(QWidget):
         # word break.
         self.current_word: str | None = ''
         self._char_map: dict[str, tuple[int, bool]] = {}
-        self._press_state: dict[int, tuple[str | None, float, bool]] = {}
+        # button keycode -> (typed char, press time, modified, sent keycode)
+        self._press_state: dict[int, tuple[str | None, float, bool, int]] = {}
         self._word_list = WordList.for_layout(layout)
 
         # Main layout holds the keyboard container
@@ -163,6 +220,10 @@ class KeyboardWidget(QWidget):
         self.LAYOUT = module.LAYOUT
         self.MODIFIER_KEYS = module.MODIFIER_KEYS
         self.WIDE_KEYS = module.WIDE_KEYS
+        self.TALL_KEYS = getattr(module, 'TALL_KEYS', {})
+        self.SIDE_BLOCK = getattr(module, 'SIDE_BLOCK', [])
+        self.SIDE_WIDE_KEYS = getattr(module, 'SIDE_WIDE_KEYS', {})
+        self.FN_KEYS = getattr(module, 'FN_KEYS', {})
 
     def set_layout(self, name: str):
         """Change to a different keyboard layout."""
@@ -183,12 +244,14 @@ class KeyboardWidget(QWidget):
         # Remove old container
         if self._container:
             self._main_layout.removeWidget(self._container)
+            self._container.hide()
             self._container.deleteLater()
             self._container = None
 
         self.buttons.clear()
         self.shift_active = False
         self.caps_active = False
+        self.fn_active = False
 
         # Build new keyboard
         self._build_keyboard()
@@ -237,29 +300,58 @@ class KeyboardWidget(QWidget):
         """Build the keyboard UI in a container widget."""
         self._build_char_map()
 
-        self._container = QWidget()
-        container_layout = QVBoxLayout(self._container)
-        container_layout.setSpacing(self.KEY_GAP)
-        m = self.KEY_MARGIN
-        container_layout.setContentsMargins(m, m, m, m)
+        self._container = KeyArea(self.KEY_MARGIN, self.KEY_GAP, on_resized=self._fit_labels)
 
-        for row_data in self.LAYOUT:
-            row_layout = QHBoxLayout()
-            row_layout.setSpacing(self.KEY_GAP)
+        main_width = self._place_rows(self.LAYOUT, self.WIDE_KEYS, x_offset=0.0)
+        if self.SIDE_BLOCK:
+            self._place_rows(self.SIDE_BLOCK, self.SIDE_WIDE_KEYS,
+                             x_offset=main_width + self.SIDE_BLOCK_GAP)
 
+        self._main_layout.addWidget(self._container)
+
+    def _place_rows(self, rows, wide_keys: dict, x_offset: float) -> float:
+        """
+        Place rows of keys left to right, skipping space taken by keys
+        from rows above (like a two-row Enter). Rows shorter than the
+        widest row are stretched to the same width. Returns that width.
+        """
+        # Per row: list of (start, end) units already taken by tall keys
+        taken: dict[int, list[tuple[float, float]]] = {}
+        rows_placed = []
+
+        for row_idx, row_data in enumerate(rows):
+            x = 0.0
+            keys = []
             for normal, shifted, keycode in row_data:
-                btn = KeyButton(normal, shifted, keycode, self.MODIFIER_KEYS, self.WIDE_KEYS)
+                for start, end in sorted(taken.get(row_idx, [])):
+                    if abs(x - start) < 1e-6:
+                        x = end
+                width = wide_keys.get(keycode, 1.0)
+                height = self.TALL_KEYS.get(keycode, 1)
+                keys.append((normal, shifted, keycode, x, width, height))
+                for extra in range(1, height):
+                    taken.setdefault(row_idx + extra, []).append((x, x + width))
+                x += width
+            row_end = max([x] + [end for _, end in taken.get(row_idx, [])])
+            rows_placed.append((row_idx, keys, row_end))
+
+        full_width = max(end for _, _, end in rows_placed)
+
+        for row_idx, keys, row_end in rows_placed:
+            stretch = full_width / row_end if row_end else 1.0
+            for normal, shifted, keycode, x, width, height in keys:
+                btn = KeyButton(normal, shifted, keycode, self.MODIFIER_KEYS,
+                                fn_key=self.FN_KEYS.get(keycode))
                 if btn.is_modifier:
                     btn.clicked.connect(lambda checked, b=btn: self._on_modifier_clicked(b))
                 else:
                     btn.pressed.connect(lambda b=btn: self._on_key_pressed(b))
                     btn.released.connect(lambda b=btn: self._on_key_released(b))
-                row_layout.addWidget(btn, stretch=int(btn.width_multiplier * 100))
+                self._container.place(btn, x_offset + x * stretch, row_idx,
+                                      width * stretch, height)
                 self.buttons.append(btn)
 
-            container_layout.addLayout(row_layout, stretch=1)
-
-        self._main_layout.addWidget(self._container)
+        return full_width
 
     def set_scale(self, factor: float):
         """Scale the suggestion bar height with the window."""
@@ -267,27 +359,13 @@ class KeyboardWidget(QWidget):
         self._suggestion_bar.setFixedHeight(int(self.SUGGESTION_BAR_HEIGHT * factor))
         self._fit_labels()
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._fit_labels()
-
     def _fit_labels(self):
         """Size labels from the actual key size so small keyboards stay readable."""
-        if not self.LAYOUT:
+        if not self._container:
             return
-        rows = len(self.LAYOUT)
-        keys_h = self.height() - self._suggestion_bar.height() - 2 * self.KEY_MARGIN
-        row_h = (keys_h - (rows - 1) * self.KEY_GAP) / rows
-
-        # Width of a 1x key in the widest row
-        keys_w = self.width() - 2 * self.KEY_MARGIN
-        unit_w = min(
-            (keys_w - (len(row) - 1) * self.KEY_GAP)
-            / sum(self.WIDE_KEYS.get(k, 1.0) for _, _, k in row)
-            for row in self.LAYOUT
-        )
-
-        px = max(8, int(min(row_h, unit_w) * self.LABEL_RATIO))
+        area = self._container
+        key = min(area.row_h, area.unit_w) - area.gap
+        px = max(8, int(key * self.LABEL_RATIO))
         bar_px = max(8, int(self._suggestion_bar.height() * 0.5))
         for btn in self.buttons:
             self._set_pixel_size(btn, px)
@@ -317,7 +395,13 @@ class KeyboardWidget(QWidget):
             self._update_all_labels()
             return
 
-        if keycode in (ecodes.KEY_LEFTCTRL, ecodes.KEY_LEFTALT, ecodes.KEY_RIGHTALT):
+        if keycode == ecodes.KEY_FN:
+            self.fn_active = not self.fn_active
+            self._update_modifier_state(button, self.fn_active)
+            self._update_all_labels()
+            return
+
+        if keycode in self.STICKY_MODIFIERS:
             is_active = self.emitter.toggle_modifier(keycode)
             self._update_modifier_state(button, is_active)
 
@@ -328,17 +412,19 @@ class KeyboardWidget(QWidget):
         else:
             apply_shift = self.shift_active
 
+        sent = button.current_keycode()
         label = button.shifted_label if apply_shift else button.normal_label
-        typed = label if len(label) == 1 and button.normal_label != button.shifted_label else None
-        modified = any(self.emitter.is_modifier_active(k)
-                       for k in (ecodes.KEY_LEFTCTRL, ecodes.KEY_LEFTALT, ecodes.KEY_RIGHTALT))
-        self._press_state[button.keycode] = (typed, time.monotonic(), modified)
+        is_char = len(label) == 1 and button.normal_label != button.shifted_label
+        typed = label if is_char and sent == button.keycode else None
+        modified = any(self.emitter.is_modifier_active(k) for k in self.STICKY_MODIFIERS)
+        self._press_state[button.keycode] = (typed, time.monotonic(), modified, sent)
 
-        self.emitter.key_down(button.keycode, with_shift=apply_shift)
+        self.emitter.key_down(sent, with_shift=apply_shift)
 
     def _on_key_released(self, button: KeyButton):
         """Send key-up for a regular key, then clear one-shot modifiers."""
-        self.emitter.key_up(button.keycode)
+        state = self._press_state.get(button.keycode)
+        self.emitter.key_up(state[3] if state else button.keycode)
         self._track_word(button.keycode)
 
         if self.shift_active:
@@ -354,7 +440,7 @@ class KeyboardWidget(QWidget):
         state = self._press_state.pop(keycode, None)
         if state is None:
             return
-        typed, pressed_at, modified = state
+        typed, pressed_at, modified, _ = state
         repeated = time.monotonic() - pressed_at >= self.REPEAT_GUARD_SECONDS
         word = self.current_word
 
@@ -444,7 +530,7 @@ class KeyboardWidget(QWidget):
     def _update_ctrl_alt_buttons(self):
         """Update ctrl/alt button states based on emitter state."""
         for btn in self.buttons:
-            if btn.keycode in (ecodes.KEY_LEFTCTRL, ecodes.KEY_LEFTALT, ecodes.KEY_RIGHTALT):
+            if btn.keycode in self.STICKY_MODIFIERS:
                 is_active = self.emitter.is_modifier_active(btn.keycode)
                 self._update_modifier_state(btn, is_active)
 
@@ -455,7 +541,7 @@ class KeyboardWidget(QWidget):
                 show_shifted = self.shift_active != self.caps_active
             else:
                 show_shifted = self.shift_active
-            btn.update_label(show_shifted)
+            btn.update_label(show_shifted, self.fn_active)
 
     def move_window_to_monitor(self, direction: str):
         """Move the active window to another monitor using Win+Shift+Arrow."""

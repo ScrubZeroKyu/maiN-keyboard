@@ -2,12 +2,19 @@
 
 from evdev import ecodes
 
+from layouts.common import (
+    BOTTOM_ROW, COMMON_WIDE_KEYS, FN_KEYS, MODIFIER_KEYS, SIDE_BLOCK, SIDE_WIDE_KEYS,
+)
+
 # Key definitions: (normal_char, shift_char, keycode)
-# For special keys, normal_char is the display label
+# For special keys, normal_char is the display label.
+# Every row is 15.5 units wide so the arrow keys line up; Enter spans
+# rows 2 and 3 like on a real UK keyboard.
 
 LAYOUT = [
     # Row 1: Number row
     [
+        ('Esc', 'Esc', ecodes.KEY_ESC),
         ('`', '¬', ecodes.KEY_GRAVE),
         ('1', '!', ecodes.KEY_1),
         ('2', '"', ecodes.KEY_2),
@@ -38,9 +45,9 @@ LAYOUT = [
         ('p', 'P', ecodes.KEY_P),
         ('[', '{', ecodes.KEY_LEFTBRACE),
         (']', '}', ecodes.KEY_RIGHTBRACE),
-        ('↵', '↵', ecodes.KEY_ENTER),
+        ('Enter', 'Enter', ecodes.KEY_ENTER),
     ],
-    # Row 3: Home row
+    # Row 3: Home row (Enter continues from row 2)
     [
         ('Caps', 'Caps', ecodes.KEY_CAPSLOCK),
         ('a', 'A', ecodes.KEY_A),
@@ -58,7 +65,7 @@ LAYOUT = [
     ],
     # Row 4: Bottom letter row
     [
-        ('⇧', '⇧', ecodes.KEY_LEFTSHIFT),
+        ('Shift', 'Shift', ecodes.KEY_LEFTSHIFT),
         ('\\', '|', ecodes.KEY_102ND),
         ('z', 'Z', ecodes.KEY_Z),
         ('x', 'X', ecodes.KEY_X),
@@ -70,41 +77,23 @@ LAYOUT = [
         (',', '<', ecodes.KEY_COMMA),
         ('.', '>', ecodes.KEY_DOT),
         ('/', '?', ecodes.KEY_SLASH),
-        ('⇧', '⇧', ecodes.KEY_RIGHTSHIFT),
+        ('↑', '↑', ecodes.KEY_UP),
+        ('Shift', 'Shift', ecodes.KEY_RIGHTSHIFT),
     ],
     # Row 5: Bottom row with space
-    [
-        ('Ctrl', 'Ctrl', ecodes.KEY_LEFTCTRL),
-        ('Alt', 'Alt', ecodes.KEY_LEFTALT),
-        ('Space', 'Space', ecodes.KEY_SPACE),
-        ('AltGr', 'AltGr', ecodes.KEY_RIGHTALT),
-        ('←', '←', ecodes.KEY_LEFT),
-        ('↓', '↓', ecodes.KEY_DOWN),
-        ('↑', '↑', ecodes.KEY_UP),
-        ('→', '→', ecodes.KEY_RIGHT),
-    ],
+    BOTTOM_ROW,
 ]
 
-# Special keys that toggle or act as modifiers
-MODIFIER_KEYS = {
-    ecodes.KEY_LEFTSHIFT,
-    ecodes.KEY_RIGHTSHIFT,
-    ecodes.KEY_LEFTCTRL,
-    ecodes.KEY_LEFTALT,
-    ecodes.KEY_RIGHTALT,
-    ecodes.KEY_CAPSLOCK,
+# Keys that should have wider buttons (units; 1.0 if missing)
+WIDE_KEYS = {
+    **COMMON_WIDE_KEYS,
+    ecodes.KEY_TAB: 1.75,
+    ecodes.KEY_ENTER: 1.75,
+    ecodes.KEY_LEFTSHIFT: 1.5,
+    ecodes.KEY_RIGHTSHIFT: 2.0,
 }
 
-# Keys that should have wider buttons
-WIDE_KEYS = {
-    ecodes.KEY_BACKSPACE: 1.5,
-    ecodes.KEY_TAB: 1.5,
-    ecodes.KEY_ENTER: 1.5,
-    ecodes.KEY_CAPSLOCK: 1.75,
-    ecodes.KEY_LEFTSHIFT: 1.25,
-    ecodes.KEY_RIGHTSHIFT: 2.25,
-    ecodes.KEY_LEFTCTRL: 1.25,
-    ecodes.KEY_LEFTALT: 1.25,
-    ecodes.KEY_SPACE: 6.0,
-    ecodes.KEY_RIGHTALT: 1.25,
+# Keys spanning more than one row
+TALL_KEYS = {
+    ecodes.KEY_ENTER: 2,
 }

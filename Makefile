@@ -14,6 +14,7 @@ install:
 	install -Dm644 layouts/de.py $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/layouts/de.py
 	install -Dm644 layouts/uk.py $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/layouts/uk.py
 	install -Dm644 layouts/us.py $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/layouts/us.py
+	install -Dm644 layouts/common.py $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/layouts/common.py
 	install -Dm644 words/en.txt $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/words/en.txt
 	install -Dm644 words/de.txt $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/words/de.txt
 

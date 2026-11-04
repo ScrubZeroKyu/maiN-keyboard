@@ -126,6 +126,8 @@ class KeyboardWidget(QWidget):
 
     def _rebuild_keyboard(self):
         """Rebuild the keyboard with the current layout."""
+        self.release_held_keys()
+
         # Remove old container
         if self._container:
             self._main_layout.removeWidget(self._container)
@@ -259,6 +261,19 @@ class KeyboardWidget(QWidget):
         self.emitter.device.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 0)
         self.emitter.device.write(ecodes.EV_KEY, ecodes.KEY_LEFTMETA, 0)
         self.emitter.device.syn()
+
+    def release_held_keys(self):
+        """Release any key still held so it can't get stuck repeating."""
+        for btn in self.buttons:
+            if btn.isDown() and not btn.is_modifier:
+                btn.setDown(False)
+                self._on_key_released(btn)
+        self.emitter.release_all_keys()
+
+    def hideEvent(self, event):
+        """Release held keys when the keyboard is hidden."""
+        self.release_held_keys()
+        super().hideEvent(event)
 
     def closeEvent(self, event):
         """Clean up when widget is closed."""

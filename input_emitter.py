@@ -9,7 +9,9 @@ class InputEmitter:
 
     def __init__(self):
         """Create a virtual keyboard device."""
-        # Define capabilities - all standard keyboard keys
+        # Define capabilities - all standard keyboard keys.
+        # No EV_REP on purpose: we hold keys down and let the compositor
+        # (KDE) handle key repeat, so the kernel must not add its own.
         capabilities = {
             ecodes.EV_KEY: list(range(1, 256)),  # All key codes
         }

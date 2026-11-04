@@ -355,6 +355,9 @@ def main():
     window = VirtualKeyboard()
     window.show()
 
+    # Release held keys and modifiers before the uinput device goes away
+    app.aboutToQuit.connect(window.keyboard.emitter.close)
+
     # System tray icon
     tray = QSystemTrayIcon()
     tray.setIcon(QIcon.fromTheme('input-keyboard'))

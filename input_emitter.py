@@ -24,31 +24,52 @@ class InputEmitter:
         # Track active modifiers
         self._active_modifiers = set()
 
-    def send_key(self, keycode: int, with_shift: bool = False):
+        # Keys currently held down -> whether we pressed shift for them
+        self._held_keys: dict[int, bool] = {}
+
+    def key_down(self, keycode: int, with_shift: bool = False):
         """
-        Send a single key press and release.
+        Press a key and keep it held until key_up() is called.
 
         Args:
-            keycode: The evdev keycode to send
-            with_shift: Whether to hold shift during the keypress
+            keycode: The evdev keycode to press
+            with_shift: Whether to hold shift for as long as the key is held
         """
-        # Press shift if needed and not already active
-        if with_shift and ecodes.KEY_LEFTSHIFT not in self._active_modifiers:
+        if keycode in self._held_keys:
+            return
+
+        # Only press shift ourselves if it isn't already held as a modifier
+        added_shift = with_shift and ecodes.KEY_LEFTSHIFT not in self._active_modifiers
+        if added_shift:
             self.device.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 1)
             self.device.syn()
 
-        # Key press
         self.device.write(ecodes.EV_KEY, keycode, 1)
         self.device.syn()
+        self._held_keys[keycode] = added_shift
 
-        # Key release
+    def key_up(self, keycode: int):
+        """Release a key pressed with key_down(), plus the shift it added."""
+        added_shift = self._held_keys.pop(keycode, None)
+        if added_shift is None:
+            return
+
         self.device.write(ecodes.EV_KEY, keycode, 0)
         self.device.syn()
 
-        # Release shift if we pressed it
-        if with_shift and ecodes.KEY_LEFTSHIFT not in self._active_modifiers:
+        if added_shift:
             self.device.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 0)
             self.device.syn()
+
+    def send_key(self, keycode: int, with_shift: bool = False):
+        """Send a single key press and release."""
+        self.key_down(keycode, with_shift)
+        self.key_up(keycode)
+
+    def release_all_keys(self):
+        """Release every key currently held with key_down()."""
+        for keycode in list(self._held_keys):
+            self.key_up(keycode)
 
     def press_modifier(self, keycode: int):
         """Press and hold a modifier key."""
@@ -89,6 +110,7 @@ class InputEmitter:
 
     def close(self):
         """Clean up the uinput device."""
+        self.release_all_keys()
         self.release_all_modifiers()
         self.device.close()
 

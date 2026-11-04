@@ -153,7 +153,11 @@ class KeyboardWidget(QWidget):
 
             for normal, shifted, keycode in row_data:
                 btn = KeyButton(normal, shifted, keycode, self.MODIFIER_KEYS, self.WIDE_KEYS)
-                btn.clicked.connect(lambda checked, k=keycode, b=btn: self._on_key_clicked(k, b))
+                if btn.is_modifier:
+                    btn.clicked.connect(lambda checked, b=btn: self._on_modifier_clicked(b))
+                else:
+                    btn.pressed.connect(lambda b=btn: self._on_key_pressed(b))
+                    btn.released.connect(lambda b=btn: self._on_key_released(b))
                 row_layout.addWidget(btn)
                 self.buttons.append(btn)
 
@@ -170,8 +174,10 @@ class KeyboardWidget(QWidget):
             font.setPointSize(new_size)
             btn.setFont(font)
 
-    def _on_key_clicked(self, keycode: int, button: KeyButton):
-        """Handle key button click."""
+    def _on_modifier_clicked(self, button: KeyButton):
+        """Toggle Shift, Caps, Ctrl or Alt."""
+        keycode = button.keycode
+
         if keycode in (ecodes.KEY_LEFTSHIFT, ecodes.KEY_RIGHTSHIFT):
             self.shift_active = not self.shift_active
             self._update_modifier_state(button, self.shift_active)
@@ -187,15 +193,19 @@ class KeyboardWidget(QWidget):
         if keycode in (ecodes.KEY_LEFTCTRL, ecodes.KEY_LEFTALT, ecodes.KEY_RIGHTALT):
             is_active = self.emitter.toggle_modifier(keycode)
             self._update_modifier_state(button, is_active)
-            return
 
-        # Regular key
+    def _on_key_pressed(self, button: KeyButton):
+        """Send key-down for a regular key."""
         if button.normal_label.isalpha() and len(button.normal_label) == 1:
             apply_shift = self.shift_active != self.caps_active
         else:
             apply_shift = self.shift_active
 
-        self.emitter.send_key(keycode, with_shift=apply_shift)
+        self.emitter.key_down(button.keycode, with_shift=apply_shift)
+
+    def _on_key_released(self, button: KeyButton):
+        """Send key-up for a regular key, then clear one-shot modifiers."""
+        self.emitter.key_up(button.keycode)
 
         if self.shift_active:
             self.shift_active = False

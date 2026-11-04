@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QWidget, QPushButton, QSizePolicy, QVBoxLayout, QHBoxLayout
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from evdev import ecodes
 
 from input_emitter import InputEmitter
@@ -25,9 +25,13 @@ LAYOUT_NAMES = {
 class KeyButton(QPushButton):
     """A single key button on the virtual keyboard."""
 
+    LABEL_COLOR = QColor('#ffffff')
+    SECONDARY_COLOR = QColor('#b0b0b5')
+
     def __init__(self, normal: str, shifted: str, keycode: int, modifier_keys: set,
                  fn_key: tuple[str, int] | None = None, parent=None):
-        super().__init__(normal, parent)
+        # Labels are painted by paintEvent, not by QPushButton
+        super().__init__('', parent)
         self.normal_label = normal
         self.shifted_label = shifted
         self.keycode = keycode
@@ -35,6 +39,7 @@ class KeyButton(QPushButton):
         # (label, keycode) used while Fn is on, e.g. ('F1', KEY_F1)
         self.fn_key = fn_key
         self.fn_active = False
+        self.shift_shown = False
 
         font = QFont()
         font.setPointSize(14)
@@ -51,12 +56,61 @@ class KeyButton(QPushButton):
     def update_label(self, shift_active: bool, fn_active: bool = False):
         """Update button label based on shift and Fn state."""
         self.fn_active = fn_active
+        self.shift_shown = shift_active and not self.is_modifier
+        self.update()
+
+    def labels(self) -> tuple[str, str]:
+        """(main label, small top-left label) as currently shown."""
         if self.fn_active and self.fn_key:
-            self.setText(self.fn_key[0])
-        elif not self.is_modifier:
-            label = self.shifted_label if shift_active else self.normal_label
-            # Qt interprets single '&' as a mnemonic; escape it to '&&' to display literal text.
-            self.setText(label.replace("&", "&&"))
+            return self.fn_key[0], ''
+        normal, shifted = self.normal_label, self.shifted_label
+        is_symbol_pair = (len(normal) == 1 and len(shifted) == 1
+                          and normal != shifted and not normal.isalpha())
+        if is_symbol_pair:
+            # Like a real keycap: the other character small in the corner
+            return (shifted, normal) if self.shift_shown else (normal, shifted)
+        return (shifted if self.shift_shown else normal), ''
+
+    def paintEvent(self, event):
+        super().paintEvent(event)  # background from the style sheet
+
+        main, small = self.labels()
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing)
+        rect = self.rect()
+        font = self.font()
+        px = max(1, font.pixelSize())
+        pad = max(2, int(px * 0.35))
+
+        if small:
+            small_font = QFont(font)
+            small_font.setPixelSize(max(6, int(px * 0.7)))
+            painter.setFont(small_font)
+            painter.setPen(self.SECONDARY_COLOR)
+            painter.drawText(rect.adjusted(pad, pad // 2, 0, 0),
+                             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, small)
+            # Main character sits a little lower, below the small one
+            main_rect = rect.adjusted(0, int(rect.height() * 0.2), 0, 0)
+            align = Qt.AlignmentFlag.AlignCenter
+        elif len(main) > 1 and main != 'Space' and not (self.fn_active and self.fn_key):
+            # Word keys (Tab, Shift, Enter, Home, ...) are left-aligned
+            main_rect = rect.adjusted(pad, 0, 0, 0)
+            align = Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        else:
+            main_rect = rect
+            align = Qt.AlignmentFlag.AlignCenter
+
+        # Shrink labels that don't fit the key (e.g. "AltGr" on a 1x key)
+        available = main_rect.width() - pad
+        text_w = QFontMetrics(font).horizontalAdvance(main)
+        if text_w > available > 0:
+            font = QFont(font)
+            font.setPixelSize(max(6, int(px * available / text_w)))
+
+        painter.setFont(font)
+        painter.setPen(self.LABEL_COLOR)
+        painter.drawText(main_rect, align, main)
+        painter.end()
 
 
 class KeyArea(QWidget):

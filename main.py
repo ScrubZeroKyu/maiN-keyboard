@@ -187,7 +187,7 @@ class EdgeResizer(QObject):
     presses over child widgets too.
     """
 
-    EDGE = 8  # px from the window border that count as a resize handle
+    EDGE = 4  # px from the window border that count as a resize handle (= key margin)
 
     CURSORS = {
         Qt.Edge.LeftEdge: Qt.CursorShape.SizeHorCursor,

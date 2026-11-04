@@ -82,8 +82,8 @@ class KeyboardWidget(QWidget):
             color: #ffffff;
             border: none;
             border-radius: 0px;
-            padding: 2px;
-            margin: 2px;
+            padding: 0px;
+            margin: 0px;
         }
         KeyButton:hover {
             background-color: #5a5a5c;
@@ -109,7 +109,9 @@ class KeyboardWidget(QWidget):
         }
     """
 
-    BASE_FONT_SIZE = 14
+    KEY_GAP = 3      # px between keys
+    KEY_MARGIN = 4   # px around the key area (matches the window resize zone)
+    LABEL_RATIO = 0.45  # label height relative to key height
     SUGGESTION_COUNT = 3
     SUGGESTION_BAR_HEIGHT = 36
 
@@ -194,8 +196,8 @@ class KeyboardWidget(QWidget):
         self._suggestion_bar = QWidget()
         self._suggestion_bar.setFixedHeight(self.SUGGESTION_BAR_HEIGHT)
         bar_layout = QHBoxLayout(self._suggestion_bar)
-        bar_layout.setContentsMargins(8, 4, 8, 0)
-        bar_layout.setSpacing(4)
+        bar_layout.setContentsMargins(self.KEY_MARGIN, self.KEY_MARGIN, self.KEY_MARGIN, 0)
+        bar_layout.setSpacing(self.KEY_GAP)
 
         self.suggestion_buttons: list[SuggestionButton] = []
         for _ in range(self.SUGGESTION_COUNT):
@@ -227,12 +229,13 @@ class KeyboardWidget(QWidget):
 
         self._container = QWidget()
         container_layout = QVBoxLayout(self._container)
-        container_layout.setSpacing(4)
-        container_layout.setContentsMargins(8, 8, 8, 8)
+        container_layout.setSpacing(self.KEY_GAP)
+        m = self.KEY_MARGIN
+        container_layout.setContentsMargins(m, m, m, m)
 
         for row_data in self.LAYOUT:
             row_layout = QHBoxLayout()
-            row_layout.setSpacing(4)
+            row_layout.setSpacing(self.KEY_GAP)
 
             for normal, shifted, keycode in row_data:
                 btn = KeyButton(normal, shifted, keycode, self.MODIFIER_KEYS, self.WIDE_KEYS)
@@ -249,14 +252,44 @@ class KeyboardWidget(QWidget):
         self._main_layout.addWidget(self._container)
 
     def set_scale(self, factor: float):
-        """Scale the font size of all buttons."""
+        """Scale the suggestion bar height with the window."""
         self._current_scale = factor
-        new_size = int(self.BASE_FONT_SIZE * factor)
         self._suggestion_bar.setFixedHeight(int(self.SUGGESTION_BAR_HEIGHT * factor))
-        for btn in self.buttons + self.suggestion_buttons:
-            font = btn.font()
-            font.setPointSize(new_size)
-            btn.setFont(font)
+        self._fit_labels()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_labels()
+
+    def _fit_labels(self):
+        """Size labels from the actual key size so small keyboards stay readable."""
+        if not self.LAYOUT:
+            return
+        rows = len(self.LAYOUT)
+        keys_h = self.height() - self._suggestion_bar.height() - 2 * self.KEY_MARGIN
+        row_h = (keys_h - (rows - 1) * self.KEY_GAP) / rows
+
+        # Width of a 1x key in the widest row
+        keys_w = self.width() - 2 * self.KEY_MARGIN
+        unit_w = min(
+            (keys_w - (len(row) - 1) * self.KEY_GAP)
+            / sum(self.WIDE_KEYS.get(k, 1.0) for _, _, k in row)
+            for row in self.LAYOUT
+        )
+
+        px = max(8, int(min(row_h, unit_w) * self.LABEL_RATIO))
+        bar_px = max(8, int(self._suggestion_bar.height() * 0.5))
+        for btn in self.buttons:
+            self._set_pixel_size(btn, px)
+        for btn in self.suggestion_buttons:
+            self._set_pixel_size(btn, bar_px)
+
+    @staticmethod
+    def _set_pixel_size(widget, px: int):
+        font = widget.font()
+        if font.pixelSize() != px:
+            font.setPixelSize(px)
+            widget.setFont(font)
 
     def _on_modifier_clicked(self, button: KeyButton):
         """Toggle Shift, Caps, Ctrl or Alt."""

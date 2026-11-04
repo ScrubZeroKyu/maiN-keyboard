@@ -107,6 +107,9 @@ class KeyboardWidget(QWidget):
         SuggestionButton:pressed {
             background-color: #2a2a2c;
         }
+        SuggestionButton#add_word {
+            color: #8e8e93;
+        }
     """
 
     KEY_GAP = 3      # px between keys
@@ -206,6 +209,13 @@ class KeyboardWidget(QWidget):
             bar_layout.addWidget(btn)
             self.suggestion_buttons.append(btn)
 
+        # Shown while typing a word that isn't in the word list
+        self.add_word_button = SuggestionButton()
+        self.add_word_button.setObjectName('add_word')
+        self.add_word_button.setToolTip('Add this word to the suggestions')
+        self.add_word_button.clicked.connect(self._on_add_word_clicked)
+        bar_layout.addWidget(self.add_word_button)
+
         self._main_layout.addWidget(self._suggestion_bar)
         self._update_suggestions()
 
@@ -281,7 +291,7 @@ class KeyboardWidget(QWidget):
         bar_px = max(8, int(self._suggestion_bar.height() * 0.5))
         for btn in self.buttons:
             self._set_pixel_size(btn, px)
-        for btn in self.suggestion_buttons:
+        for btn in self.suggestion_buttons + [self.add_word_button]:
             self._set_pixel_size(btn, bar_px)
 
     @staticmethod
@@ -349,6 +359,8 @@ class KeyboardWidget(QWidget):
         word = self.current_word
 
         if keycode in self.WORD_BREAK_KEYS:
+            if word:
+                self._word_list.record_use(word)
             word = ''
         elif modified or repeated:
             # Shortcut (Ctrl+V, AltGr chars, ...) or possibly repeated key
@@ -361,6 +373,8 @@ class KeyboardWidget(QWidget):
                 word += typed
         elif typed is not None:
             # Digits and punctuation end the word
+            if word:
+                self._word_list.record_use(word)
             word = ''
         else:
             # Arrows and other navigation keys move the cursor
@@ -381,6 +395,18 @@ class KeyboardWidget(QWidget):
         for i, btn in enumerate(self.suggestion_buttons):
             btn.set_word(words[i] if i < len(words) else '')
 
+        word = self.current_word
+        can_add = bool(word) and len(word) >= 2 and not self._word_list.is_known(word)
+        self.add_word_button.word = word if can_add else ''
+        self.add_word_button.setText(f'+ {word}' if can_add else '')
+        self.add_word_button.setVisible(can_add)
+
+    def _on_add_word_clicked(self):
+        """Save the word being typed so it gets suggested from now on."""
+        if self.add_word_button.word:
+            self._word_list.add_word(self.add_word_button.word)
+            self._update_suggestions()
+
     def _on_suggestion_clicked(self, button: SuggestionButton):
         """Type the rest of the suggested word plus a space."""
         prefix = self.current_word
@@ -394,6 +420,7 @@ class KeyboardWidget(QWidget):
         for ch in button.word[len(prefix):] + ' ':
             keycode, with_shift = self._char_map[ch]
             self.emitter.send_key(keycode, with_shift=with_shift)
+        self._word_list.record_use(button.word)
 
         if self.shift_active:
             self.shift_active = False

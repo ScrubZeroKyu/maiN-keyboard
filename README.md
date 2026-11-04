@@ -21,7 +21,7 @@ Many on-screen keyboards have issues under Wayland:
 - **Dark design** - Modern iOS-style buttons with 3D shadow effect
 - **Adjustable opacity** - Set transparency (50%-100%) via tray menu
 - **Multiple layouts** - German (DE), English UK, English US
-- **Word suggestions** - Tap a suggestion to finish the word (English and German word lists; add your own in `~/.config/osk/words-en.txt` / `words-de.txt`)
+- **Word suggestions** - Tap a suggestion to finish the word. Words you use often come first; tap **+ word** to add a new one (English list of 20,000 words, small German list)
 - **Key repeat** - Hold a key to repeat it, using KDE's repeat settings
 - **Layout switching** - Button in title bar or via tray menu
 - **Resizable** - Drag any edge or corner to resize (down to half the default size)
@@ -108,6 +108,10 @@ sudo udevadm trigger
 ## License
 
 MIT License
+
+## Credits
+
+The English word list (`words/en.txt`) comes from [FrequencyWords](https://github.com/hermitdave/FrequencyWords) by Hermit Dave (OpenSubtitles 2018), licensed [CC-BY-SA-4.0](https://creativecommons.org/licenses/by-sa/4.0/). Regenerate it with `python3 tools/build_wordlists.py`.
 
 ## Author
 

@@ -53,33 +53,27 @@ class TitleBar(QWidget):
 
     STYLE = """
         TitleBar {
-            background-color: #131315;
-            border-top-left-radius: 8px;
-            border-top-right-radius: 8px;
+            background-color: #ffffff;
         }
         QLabel {
-            color: #8e8e93;
+            color: #3a3a3c;
             font-size: 12px;
             padding-left: 8px;
         }
         QPushButton {
             background-color: transparent;
-            color: #8e8e93;
+            color: #3a3a3c;
             border: none;
             font-size: 16px;
             padding: 4px 12px;
         }
         QPushButton:hover {
-            background-color: #3a3a3c;
-            color: white;
+            background-color: #e5e5ea;
+            color: black;
         }
         QPushButton#close_btn:hover {
             background-color: #c42b1c;
-            border-top-right-radius: 8px;
-        }
-        QPushButton#options_btn {
-            font-size: 16px;
-            padding: 4px 8px;
+            color: white;
         }
     """
 
@@ -89,6 +83,8 @@ class TitleBar(QWidget):
         self._drag_pos = None
 
         self.setFixedHeight(32)
+        # Needed for the style sheet background on a QWidget subclass
+        self.setAttribute(Qt.WidgetAttribute.WA_StyledBackground, True)
         self.setStyleSheet(self.STYLE)
 
         layout = QHBoxLayout(self)
@@ -106,36 +102,6 @@ class TitleBar(QWidget):
         spacer.setSizePolicy(spacer.sizePolicy().Policy.Expanding, spacer.sizePolicy().Policy.Preferred)
         layout.addWidget(spacer)
 
-        # Monitor switch buttons
-        # Move the active window (the app being typed in) to another monitor
-        self.mon_left_btn = QPushButton("<-")
-        self.mon_left_btn.setFixedSize(40, 32)
-        self.mon_left_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.mon_left_btn.setToolTip("Move the active window to the left monitor")
-        self.mon_left_btn.clicked.connect(lambda: self._on_move_monitor('left'))
-        layout.addWidget(self.mon_left_btn)
-
-        self.mon_right_btn = QPushButton("->")
-        self.mon_right_btn.setFixedSize(40, 32)
-        self.mon_right_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.mon_right_btn.setToolTip("Move the active window to the right monitor")
-        self.mon_right_btn.clicked.connect(lambda: self._on_move_monitor('right'))
-        layout.addWidget(self.mon_right_btn)
-
-        # Separator
-        sep = QWidget()
-        sep.setFixedWidth(10)
-        layout.addWidget(sep)
-
-        # Options button (layout, suggestions, word lists)
-        self.options_btn = QPushButton("⚙")
-        self.options_btn.setObjectName("options_btn")
-        self.options_btn.setFixedSize(40, 32)
-        self.options_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.options_btn.setToolTip("Options")
-        self.options_btn.clicked.connect(lambda: self.window_parent.open_options())
-        layout.addWidget(self.options_btn)
-
         # Close button
         self.close_btn = QPushButton("✕")
         self.close_btn.setObjectName("close_btn")
@@ -146,10 +112,6 @@ class TitleBar(QWidget):
 
     def _on_close(self):
         self.window_parent.hide()
-
-    def _on_move_monitor(self, direction):
-        if self.window_parent:
-            self.window_parent.keyboard.move_window_to_monitor(direction)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -351,6 +313,7 @@ class VirtualKeyboard(QWidget):
                                        suggestion_count=suggestion_count,
                                        next_word=next_word)
         self.keyboard.layout_changed.connect(self._on_layout_changed)
+        self.keyboard.options_requested.connect(self.open_options)
         layout.addWidget(self.keyboard)
 
         # Resizable by dragging the edges, down to half the default size

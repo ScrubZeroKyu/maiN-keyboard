@@ -12,6 +12,7 @@ from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter
 from evdev import ecodes
 
 from input_emitter import InputEmitter
+from layouts.common import OPTIONS_KEY
 from suggestions import WordList
 
 AVAILABLE_LAYOUTS = ['de', 'uk', 'us']
@@ -180,6 +181,7 @@ class KeyboardWidget(QWidget):
     """The main virtual keyboard widget."""
 
     layout_changed = pyqtSignal(str)
+    options_requested = pyqtSignal()
 
     BASE_STYLE = """
         QWidget {
@@ -458,7 +460,9 @@ class KeyboardWidget(QWidget):
             for normal, shifted, keycode, x, width, height in keys:
                 btn = KeyButton(normal, shifted, keycode, self.MODIFIER_KEYS,
                                 fn_key=self.FN_KEYS.get(keycode))
-                if btn.is_modifier:
+                if keycode == OPTIONS_KEY:
+                    btn.clicked.connect(self.options_requested.emit)
+                elif btn.is_modifier:
                     btn.clicked.connect(lambda checked, b=btn: self._on_modifier_clicked(b))
                 else:
                     btn.pressed.connect(lambda b=btn: self._on_key_pressed(b))
@@ -742,23 +746,6 @@ class KeyboardWidget(QWidget):
             else:
                 show_shifted = self.shift_active
             btn.update_label(show_shifted, self.fn_active)
-
-    def move_window_to_monitor(self, direction: str):
-        """Move the active window to another monitor using Win+Shift+Arrow."""
-        arrow_key = ecodes.KEY_LEFT if direction == 'left' else ecodes.KEY_RIGHT
-
-        self.emitter.device.write(ecodes.EV_KEY, ecodes.KEY_LEFTMETA, 1)
-        self.emitter.device.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 1)
-        self.emitter.device.syn()
-
-        self.emitter.device.write(ecodes.EV_KEY, arrow_key, 1)
-        self.emitter.device.syn()
-        self.emitter.device.write(ecodes.EV_KEY, arrow_key, 0)
-        self.emitter.device.syn()
-
-        self.emitter.device.write(ecodes.EV_KEY, ecodes.KEY_LEFTSHIFT, 0)
-        self.emitter.device.write(ecodes.EV_KEY, ecodes.KEY_LEFTMETA, 0)
-        self.emitter.device.syn()
 
     def release_held_keys(self):
         """Release any key still held so it can't get stuck repeating."""

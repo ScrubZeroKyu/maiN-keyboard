@@ -14,26 +14,43 @@ Many on-screen keyboards have issues under Wayland:
 - Kernel-level keyboard input via uinput
 - No focus stealing - text fields stay active
 
+## Closest thing to the Windows On-Screen Keyboard on Linux
+
+MaiN_Keyboard is modelled on the Windows 10/11 On-Screen Keyboard (`osk.exe`), and it is probably the closest match you can get on Linux:
+
+- **Same full layout** - Esc, Fn, Win, Menu, Home/End, Insert, Del, PrtScn, ScrLk, Pause, PgUp/PgDn (US), and the Windows-style arrow cluster with ↑ above ↓ next to right Shift
+- **Same keycap look** - flat square keys, the shifted symbol shown small in the corner (`!` above `1`), word keys like Tab and Shift left-aligned
+- **Same sticky modifiers** - tap Ctrl, Alt, Win or Shift, then a key, for a shortcut (e.g. Win then E); Fn swaps the number row for F1-F12
+- **Same text prediction bar** above the keys, with next-word guessing
+- **Options key** under ScrLk and Pause, where Windows puts it
+- **Works over most apps and games** - it never takes focus, and keys can still be clicked while a fullscreen game has grabbed the mouse
+
+**Where it falls short of Windows:** some fullscreen games. Windows can draw its keyboard above any game; on Linux some fullscreen games (especially native Wayland ones, or games that take exclusive control of the mouse) may cover the keyboard or keep clicks from reaching it. Windowed and borderless-windowed games are the most reliable.
+
 ## Features
 
 - **Works under Wayland** - Uses uinput for reliable keyboard input
 - **No focus stealing** - Text fields remain active while typing
-- **Dark design** - Modern iOS-style buttons with 3D shadow effect
-- **Adjustable opacity** - Set transparency (50%-100%) via tray menu
+- **Windows-style layout** - Full UK and US layouts with a side block of navigation keys and an Options key; UK Enter spans two rows like a real UK keyboard
+- **Keycap labels** - Shifted symbols shown in the key corner; labels shrink to fit small keys
+- **Fn key** - Turns the number row into F1-F12 until tapped again
+- **Sticky Ctrl / Alt / Win** - Tap one, then a key, to send a shortcut
+- **Dark design** - Flat square keys with a white title bar; pressed keys turn navy
+- **Adjustable opacity** - Set transparency (50%-100%) in Options or the tray menu
 - **Multiple layouts** - German (DE), English UK, English US
-- **Word suggestions** - Tap a suggestion to finish the word. After a space it guesses the next word from the words you usually type together. Words you use often come first; tap **+ word** to add a new one (English list of 20,000 words, small German list)
+- **Word suggestions** - Tap a suggestion to finish the word. After a space it guesses the next word from the words you usually type together (text chaining). Words you use often come first; tap **+ word** to add a new one (English list of 20,000 words, small German list)
 - **Key repeat** - Hold a key to repeat it, using KDE's repeat settings
 - **Knows when you move to another text field** - Suggestions start fresh after a click or touch outside the keyboard. Apps that support accessibility (GTK, Qt/KDE, Firefox) also report the text before the cursor, so suggestions stay right after clicking around, and password fields are never learned from (needs `python-gobject` and `at-spi2-core`)
-- **Options** - ⚙ button in the title bar (or tray menu): layout, opacity, number of suggestions, next-word guessing, remove added words, block words you never want suggested
+- **Game support** - Clicks still reach the keyboard when a fullscreen game (e.g. through Wine/Proton) has grabbed the mouse. Some fullscreen games still can't be typed into this way (see above)
+- **Options** - **Options** key under ScrLk and Pause (or the tray menu): layout, opacity, number of suggestions, next-word guessing, click/accessibility tracking, forget learned words, remove added words, block words you never want suggested
 - **Resizable** - Drag the white-outlined edge or a corner to resize (down to half the default size)
-- **Monitor switching** - Move active window between monitors
 - **System Tray** - Minimizes to taskbar
-- **Saves settings** - Remembers size, layout, and opacity
-- **Movable** - Window can be freely positioned
+- **Saves settings** - Remembers size, layout, opacity and suggestion options
+- **Movable** - Drag the title bar to move the window
 
 ## Screenshot
 
-![MaiN_Keyboard](https://i.ibb.co/RTxm3ypq/Bildschirmfoto-20260127-034035.png)
+![MaiN_Keyboard](docs/screenshot.png)
 
 ## Installation
 
@@ -92,12 +109,15 @@ sudo udevadm trigger
 | Action | Description |
 |--------|-------------|
 | **Drag title bar** | Move window |
-| **DE / UK / US** | Switch keyboard layout |
 | **Drag window edge or corner** | Resize keyboard |
-| **<- / ->** | Move active window to other monitor |
+| **Options key** (under ScrLk / Pause) | Open options: layout, opacity, suggestions, word lists |
+| **Fn** | Toggle F1-F12 on the number row |
+| **Ctrl / Alt / Win, then a key** | Send a shortcut |
+| **Tap a suggestion** | Finish the word and add a space |
+| **+ word** | Add the word you're typing to the suggestions |
 | **✕** | Minimize to system tray |
 | **Tray icon left-click** | Show/hide keyboard |
-| **Tray icon right-click** | Menu with layout selection |
+| **Tray icon right-click** | Menu with layout, opacity and options |
 
 ## Technical Details
 

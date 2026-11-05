@@ -47,12 +47,16 @@ BOTTOM_ROW = [
     ('☰', '☰', ecodes.KEY_COMPOSE),
 ]
 
+# Not a real key: opens the options window
+OPTIONS_KEY = -1
+
 # Block to the right of the main keys
 SIDE_BLOCK = [
     [('Home', 'Home', ecodes.KEY_HOME), ('End', 'End', ecodes.KEY_END)],
     [('Insert', 'Insert', ecodes.KEY_INSERT), ('Del', 'Del', ecodes.KEY_DELETE)],
     [('PrtScn', 'PrtScn', ecodes.KEY_SYSRQ), ('ScrLk', 'ScrLk', ecodes.KEY_SCROLLLOCK)],
     [('Pause', 'Pause', ecodes.KEY_PAUSE)],
+    [('Options', 'Options', OPTIONS_KEY)],
 ]
 
 # For layouts that have Del in the main block (US)
@@ -61,6 +65,7 @@ SIDE_BLOCK_NO_DEL = [
     [('PgUp', 'PgUp', ecodes.KEY_PAGEUP), ('PgDn', 'PgDn', ecodes.KEY_PAGEDOWN)],
     [('Insert', 'Insert', ecodes.KEY_INSERT), ('PrtScn', 'PrtScn', ecodes.KEY_SYSRQ)],
     [('ScrLk', 'ScrLk', ecodes.KEY_SCROLLLOCK), ('Pause', 'Pause', ecodes.KEY_PAUSE)],
+    [('Options', 'Options', OPTIONS_KEY)],
 ]
 
 SIDE_WIDE_KEYS = {
@@ -69,6 +74,7 @@ SIDE_WIDE_KEYS = {
     ecodes.KEY_SYSRQ: 1.5, ecodes.KEY_SCROLLLOCK: 1.5,
     ecodes.KEY_PAGEUP: 1.5, ecodes.KEY_PAGEDOWN: 1.5,
     ecodes.KEY_PAUSE: 3.0,
+    OPTIONS_KEY: 3.0,
 }
 
 # Widths shared by both layouts

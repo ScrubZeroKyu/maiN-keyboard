@@ -1,10 +1,11 @@
-# Maintainer: MaiN
+# Maintainer: ScrubZeroKyu
+# Contributor: MaiN (original author)
 pkgname=main-keyboard-git
 pkgver=1.0.0
 pkgrel=2
 pkgdesc="On-screen keyboard for KDE/Wayland that actually works"
 arch=('any')
-url="https://github.com/cachyOSMaiN/maiN-keyboard"
+url="https://github.com/ScrubZeroKyu/maiN-keyboard"
 license=('MIT')
 depends=('python' 'python-pyqt6' 'python-evdev')
 optdepends=('python-gobject: follow text fields through accessibility' 'at-spi2-core: follow text fields through accessibility')

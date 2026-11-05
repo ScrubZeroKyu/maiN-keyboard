@@ -2,6 +2,8 @@
 
 An on-screen keyboard for KDE Plasma / Wayland that actually works.
 
+> This is a fork of [cachyOSMaiN/maiN-keyboard](https://github.com/cachyOSMaiN/maiN-keyboard) by MaiN, with a Windows-style layout, text prediction, an options window, game support and more. See the [changelog](CHANGELOG.md) for everything that's new.
+
 ## Why MaiN_Keyboard?
 
 Many on-screen keyboards have issues under Wayland:
@@ -54,12 +56,18 @@ MaiN_Keyboard is modelled on the Windows 10/11 On-Screen Keyboard (`osk.exe`), a
 
 ## Installation
 
-### Arch Linux / CachyOS / Manjaro (AUR)
+### Arch Linux / CachyOS / Manjaro
+
+Build and install the package from this repository:
 
 ```bash
-paru -S main-keyboard-git   # CachyOS
-yay -S main-keyboard-git    # Arch/Manjaro
+git clone https://github.com/ScrubZeroKyu/maiN-keyboard.git
+cd maiN-keyboard
+makepkg -si
 ```
+
+> [!NOTE]
+> The `main-keyboard-git` package in the AUR installs the original version, not this fork.
 
 > [!IMPORTANT]
 > After installation, add your user to the `input` group and then log out and back in:
@@ -76,8 +84,8 @@ sudo pacman -S python-pyqt6 python-evdev
 
 **Clone repository:**
 ```bash
-git clone https://github.com/cachyOSMaiN/maiN-keyboard.git
-cd main-keyboard
+git clone https://github.com/ScrubZeroKyu/maiN-keyboard.git
+cd maiN-keyboard
 ```
 
 **Install:**
@@ -134,9 +142,10 @@ MIT License
 
 The English word list (`words/en.txt`) comes from [FrequencyWords](https://github.com/hermitdave/FrequencyWords) by Hermit Dave (OpenSubtitles 2018), licensed [CC-BY-SA-4.0](https://creativecommons.org/licenses/by-sa/4.0/). Regenerate it with `python3 tools/build_wordlists.py`.
 
-## Author
+## Authors
 
-MaiN
+- **MaiN** - original MaiN_Keyboard ([cachyOSMaiN/maiN-keyboard](https://github.com/cachyOSMaiN/maiN-keyboard))
+- **ScrubZeroKyu** - this fork ([ScrubZeroKyu/maiN-keyboard](https://github.com/ScrubZeroKyu/maiN-keyboard))
 
 ---
 

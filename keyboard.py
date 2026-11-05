@@ -259,7 +259,7 @@ class KeyboardWidget(QWidget):
 
     SIDE_BLOCK_GAP = 0.5  # units between the main keys and the side block
 
-    def __init__(self, layout='de', suggestion_count=SUGGESTION_COUNT,
+    def __init__(self, layout='us', suggestion_count=SUGGESTION_COUNT,
                  next_word=True, parent=None):
         super().__init__(parent)
         self.suggestion_count = suggestion_count

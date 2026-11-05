@@ -288,7 +288,7 @@ class VirtualKeyboard(QWidget):
         old_scale = config.get('scale', 1.0)
         self._saved_width = config.get('width', int(self.BASE_WIDTH * old_scale))
         self._saved_height = config.get('height', int(self.BASE_HEIGHT * old_scale))
-        self._current_layout = config.get('layout', 'de')
+        self._current_layout = config.get('layout', 'us')
         self._current_opacity = config.get('opacity', 1.0)
         suggestion_count = config.get('suggestion_count', KeyboardWidget.SUGGESTION_COUNT)
         next_word = config.get('next_word', True)

@@ -22,6 +22,7 @@ A big step towards the Windows 10/11 On-Screen Keyboard.
 - **Game support**: keys can be clicked while a fullscreen game (e.g. Wine/Proton) has grabbed the mouse
 
 ### Changed
+- **English US is now the default layout** (a layout you already picked is kept)
 - Flat square keys with tight spacing; pressed keys turn navy
 - White title bar with square corners
 - Key press sends key-down on press and key-up on release

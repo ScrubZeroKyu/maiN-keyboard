@@ -9,9 +9,13 @@ import sys
 import os
 import json
 import socket
+import time
 
 # Force XWayland mode for better focus handling
 os.environ['QT_QPA_PLATFORM'] = 'xcb'
+# Qt must not run the GLib main loop: the accessibility watcher runs its
+# own in a background thread (see focus_watch.py)
+os.environ['QT_NO_GLIB'] = '1'
 
 CONFIG_FILE = os.path.expanduser('~/.config/osk/settings.json')
 
@@ -20,10 +24,12 @@ from PyQt6.QtWidgets import (
     QVBoxLayout, QLabel, QPushButton,
     QSystemTrayIcon, QMenu
 )
-from PyQt6.QtCore import Qt, QObject, QEvent, QRect
-from PyQt6.QtGui import QGuiApplication, QIcon, QAction, QActionGroup
+from PyQt6.QtCore import Qt, QObject, QEvent, QRect, QTimer
+from PyQt6.QtGui import QGuiApplication, QIcon, QAction, QActionGroup, QColor, QPainter, QPen
 
 from keyboard import KeyboardWidget, AVAILABLE_LAYOUTS, LAYOUT_NAMES
+from options import OPACITY_LEVELS, OptionsDialog
+from focus_watch import AccessibilityWatcher, ClickWatcher
 
 
 def load_config():
@@ -71,9 +77,8 @@ class TitleBar(QWidget):
             background-color: #c42b1c;
             border-top-right-radius: 8px;
         }
-        QPushButton#layout_btn {
-            font-size: 12px;
-            font-weight: bold;
+        QPushButton#options_btn {
+            font-size: 16px;
             padding: 4px 8px;
         }
     """
@@ -102,44 +107,34 @@ class TitleBar(QWidget):
         layout.addWidget(spacer)
 
         # Monitor switch buttons
+        # Move the active window (the app being typed in) to another monitor
         self.mon_left_btn = QPushButton("<-")
         self.mon_left_btn.setFixedSize(40, 32)
-        self.mon_left_btn.setStyleSheet("margin-right: -6px;")
         self.mon_left_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.mon_left_btn.setToolTip("Move the active window to the left monitor")
         self.mon_left_btn.clicked.connect(lambda: self._on_move_monitor('left'))
         layout.addWidget(self.mon_left_btn)
 
-        # Window move icon
-        self.window_icon = QLabel("󰆍")
-        self.window_icon.setFixedWidth(24)
-        self.window_icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.window_icon.setStyleSheet("color: #8e8e93; font-size: 14px; padding: 0;")
-        layout.addWidget(self.window_icon)
-
         self.mon_right_btn = QPushButton("->")
         self.mon_right_btn.setFixedSize(40, 32)
-        self.mon_right_btn.setStyleSheet("margin-left: 0px;")
         self.mon_right_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.mon_right_btn.setToolTip("Move the active window to the right monitor")
         self.mon_right_btn.clicked.connect(lambda: self._on_move_monitor('right'))
         layout.addWidget(self.mon_right_btn)
-
-        # Bring icon to front (above both buttons)
-        self.mon_left_btn.stackUnder(self.window_icon)
-        self.mon_right_btn.stackUnder(self.window_icon)
 
         # Separator
         sep = QWidget()
         sep.setFixedWidth(10)
         layout.addWidget(sep)
 
-        # Layout button
-        self.layout_btn = QPushButton("DE")
-        self.layout_btn.setObjectName("layout_btn")
-        self.layout_btn.setFixedSize(40, 32)
-        self.layout_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.layout_btn.setToolTip("Tastaturlayout wechseln")
-        self.layout_btn.clicked.connect(self._on_layout_cycle)
-        layout.addWidget(self.layout_btn)
+        # Options button (layout, suggestions, word lists)
+        self.options_btn = QPushButton("⚙")
+        self.options_btn.setObjectName("options_btn")
+        self.options_btn.setFixedSize(40, 32)
+        self.options_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.options_btn.setToolTip("Options")
+        self.options_btn.clicked.connect(lambda: self.window_parent.open_options())
+        layout.addWidget(self.options_btn)
 
         # Close button
         self.close_btn = QPushButton("✕")
@@ -148,15 +143,6 @@ class TitleBar(QWidget):
         self.close_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.close_btn.clicked.connect(self._on_close)
         layout.addWidget(self.close_btn)
-
-    def update_layout_button(self, layout_name: str):
-        """Update the layout button text."""
-        self.layout_btn.setText(layout_name.upper())
-
-    def _on_layout_cycle(self):
-        """Cycle through available layouts."""
-        if self.window_parent:
-            self.window_parent.cycle_layout()
 
     def _on_close(self):
         self.window_parent.hide()
@@ -248,7 +234,7 @@ class EdgeResizer(QObject):
         if etype not in (QEvent.Type.MouseButtonPress, QEvent.Type.MouseMove,
                          QEvent.Type.HoverMove, QEvent.Type.MouseButtonRelease):
             return False
-        if not isinstance(obj, QWidget) or obj.window() is not self.window:
+        if not isinstance(obj, QWidget) or QWidget.window(obj) is not self.window:
             return False
 
         pos = event.globalPosition().toPoint()
@@ -282,6 +268,24 @@ class EdgeResizer(QObject):
         return False
 
 
+class PressTracker(QObject):
+    """Remembers when the keyboard window itself was last clicked or touched."""
+
+    PRESS_EVENTS = (QEvent.Type.MouseButtonPress, QEvent.Type.MouseButtonDblClick,
+                    QEvent.Type.TouchBegin)
+
+    def __init__(self, window: QWidget):
+        super().__init__(window)
+        self.window = window
+        self.last_press = 0.0
+
+    def eventFilter(self, obj, event):
+        if (event.type() in self.PRESS_EVENTS and isinstance(obj, QWidget)
+                and QWidget.window(obj) is self.window):
+            self.last_press = time.monotonic()
+        return False
+
+
 def event_has_buttons(event) -> bool:
     """True if a mouse button is held during this event."""
     return hasattr(event, 'buttons') and event.buttons() != Qt.MouseButton.NoButton
@@ -294,6 +298,11 @@ class VirtualKeyboard(QWidget):
     BASE_WIDTH = 900
     BASE_HEIGHT = 348
     MIN_FACTOR = 0.5
+
+    BACKGROUND = QColor('#131315')
+    # Shows where the window can be grabbed to resize it
+    OUTLINE = QColor(255, 255, 255, 200)
+    OUTLINE_WIDTH = 1
 
     def __init__(self):
         super().__init__()
@@ -319,10 +328,18 @@ class VirtualKeyboard(QWidget):
         self._saved_height = config.get('height', int(self.BASE_HEIGHT * old_scale))
         self._current_layout = config.get('layout', 'de')
         self._current_opacity = config.get('opacity', 1.0)
+        suggestion_count = config.get('suggestion_count', KeyboardWidget.SUGGESTION_COUNT)
+        next_word = config.get('next_word', True)
+        self._options_dialog = None
+        self.click_reset_enabled = config.get('click_reset', True)
+        self.accessibility_enabled = config.get('accessibility', True)
+        self._click_watcher = None
+        self._a11y_watcher = None
 
-        # Main layout
+        # Main layout, inset so the outline painted around it stays visible
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        w = self.OUTLINE_WIDTH
+        layout.setContentsMargins(w, w, w, w)
         layout.setSpacing(0)
 
         # Title bar
@@ -330,21 +347,23 @@ class VirtualKeyboard(QWidget):
         layout.addWidget(self.title_bar)
 
         # Keyboard with saved layout
-        self.keyboard = KeyboardWidget(layout=self._current_layout)
+        self.keyboard = KeyboardWidget(layout=self._current_layout,
+                                       suggestion_count=suggestion_count,
+                                       next_word=next_word)
         self.keyboard.layout_changed.connect(self._on_layout_changed)
         layout.addWidget(self.keyboard)
-
-        # Update title bar button
-        self.title_bar.update_layout_button(self._current_layout)
-
-        # Styling
-        self.setStyleSheet("background-color: #131315; border-radius: 8px;")
 
         # Resizable by dragging the edges, down to half the default size
         self.setMinimumSize(int(self.BASE_WIDTH * self.MIN_FACTOR),
                             int(self.BASE_HEIGHT * self.MIN_FACTOR))
         self._resizer = EdgeResizer(self, on_finished=self._save_size)
         QApplication.instance().installEventFilter(self._resizer)
+        self._press_tracker = PressTracker(self)
+        QApplication.instance().installEventFilter(self._press_tracker)
+
+        # Start a fresh word when the user goes to type somewhere else
+        self.set_click_reset(self.click_reset_enabled, save=False)
+        self.set_accessibility(self.accessibility_enabled, save=False)
 
         self._position_at_bottom()
         self.setWindowOpacity(self._current_opacity)
@@ -356,23 +375,114 @@ class VirtualKeyboard(QWidget):
     def _on_layout_changed(self, layout_name: str):
         """Handle layout change from keyboard widget."""
         self._current_layout = layout_name
-        self.title_bar.update_layout_button(layout_name)
         self._enable_mouse_tracking()
 
         # Update tray menu checkmarks
         for name, action in self.layout_actions.items():
             action.setChecked(name == layout_name)
 
-    def cycle_layout(self):
-        """Cycle to the next layout."""
-        current_idx = AVAILABLE_LAYOUTS.index(self._current_layout)
-        next_idx = (current_idx + 1) % len(AVAILABLE_LAYOUTS)
-        new_layout = AVAILABLE_LAYOUTS[next_idx]
-        self.keyboard.set_layout(new_layout)
+        self._save_setting('layout', layout_name)
+        if self._options_dialog:
+            # Each language has its own word lists
+            self._options_dialog.refresh()
 
     def set_layout(self, name: str):
         """Set a specific layout."""
         self.keyboard.set_layout(name)
+
+    def set_suggestion_count(self, count: int):
+        self.keyboard.set_suggestion_count(count)
+        self._enable_mouse_tracking()
+        self._save_setting('suggestion_count', self.keyboard.suggestion_count)
+
+    def set_next_word(self, enabled: bool):
+        self.keyboard.set_next_word(enabled)
+        self._save_setting('next_word', enabled)
+
+    # How long after a click to wait for the app to report the new text
+    # field (accessibility) before falling back to just starting fresh
+    CLICK_SETTLE_MS = 250
+
+    def set_click_reset(self, enabled: bool, save: bool = True):
+        """Start a new word after any click or touch outside the keyboard."""
+        self.click_reset_enabled = enabled
+        if enabled and not self._click_watcher:
+            self._click_watcher = ClickWatcher(self)
+            self._click_watcher.clicked.connect(self._on_outside_click)
+            self._click_watcher.start()
+        elif not enabled and self._click_watcher:
+            self._click_watcher.clicked.disconnect()
+            self._click_watcher.stop()
+            self._click_watcher = None
+        if save:
+            self._save_setting('click_reset', enabled)
+
+    def set_accessibility(self, enabled: bool, save: bool = True):
+        """Follow text field focus and the text at the cursor through AT-SPI."""
+        enabled = enabled and AccessibilityWatcher.available()
+        self.accessibility_enabled = enabled
+        if enabled and not self._a11y_watcher:
+            watcher = AccessibilityWatcher(self)
+            watcher.text_context.connect(self.keyboard.set_text_from_app)
+            watcher.left_text.connect(self.keyboard.reset_text)
+            watcher.start()
+            self._a11y_watcher = watcher
+        elif not enabled and self._a11y_watcher:
+            self._a11y_watcher.text_context.disconnect()
+            self._a11y_watcher.left_text.disconnect()
+            self._a11y_watcher.stop()
+            self._a11y_watcher = None
+        if save:
+            self._save_setting('accessibility', enabled)
+
+    def _on_outside_click(self):
+        clicked_at = time.monotonic()
+        QTimer.singleShot(self.CLICK_SETTLE_MS, lambda: self._after_click(clicked_at))
+
+    def _after_click(self, clicked_at: float):
+        # Clicks on the keyboard itself arrive here too
+        if abs(self._press_tracker.last_press - clicked_at) < 0.5:
+            return
+        # The app already told us where the cursor is now
+        if self.keyboard.app_text_time > clicked_at:
+            return
+        self.keyboard.reset_text()
+
+    def open_options(self):
+        """Show the options window above the keyboard."""
+        if self._options_dialog is None:
+            self._options_dialog = OptionsDialog(self, LAYOUT_NAMES)
+        dialog = self._options_dialog
+        dialog.refresh()
+        dialog.adjustSize()
+        geo = self.frameGeometry()
+        screen = (self.screen() or QGuiApplication.primaryScreen()).availableGeometry()
+        x = geo.x() + (geo.width() - dialog.width()) // 2
+        y = geo.y() - dialog.height() - 40
+        x = max(screen.left(), min(x, screen.right() - dialog.width()))
+        y = max(screen.top(), y)
+        dialog.move(x, y)
+        dialog.show()
+        dialog.raise_()
+        dialog.activateWindow()
+
+    @staticmethod
+    def _save_setting(key, value):
+        config = load_config()
+        config[key] = value
+        save_config(config)
+
+    def paintEvent(self, event):
+        """Background plus a thin outline that marks the resizable edge."""
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), self.BACKGROUND)
+        pen = QPen(self.OUTLINE)
+        pen.setWidth(self.OUTLINE_WIDTH)
+        pen.setJoinStyle(Qt.PenJoinStyle.MiterJoin)
+        painter.setPen(pen)
+        half = self.OUTLINE_WIDTH / 2
+        painter.drawRect(self.rect().toRectF().adjusted(half, half, -half, -half))
+        painter.end()
 
     def _position_at_bottom(self):
         """Position the keyboard at the bottom center of the screen."""
@@ -415,10 +525,9 @@ class VirtualKeyboard(QWidget):
         # Update tray menu checkmarks
         for value, action in self.opacity_actions.items():
             action.setChecked(value == opacity)
-        # Save setting
-        config = load_config()
-        config['opacity'] = opacity
-        save_config(config)
+        self._save_setting('opacity', opacity)
+        if self._options_dialog:
+            self._options_dialog.refresh()
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
@@ -474,6 +583,12 @@ def main():
     # Tray menu
     menu = QMenu()
 
+    options_action = QAction('Options…', menu)
+    options_action.triggered.connect(window.open_options)
+    menu.addAction(options_action)
+
+    menu.addSeparator()
+
     show_action = QAction('Show', menu)
     show_action.triggered.connect(window.show)
     menu.addAction(show_action)
@@ -506,16 +621,7 @@ def main():
     opacity_group = QActionGroup(opacity_menu)
     opacity_group.setExclusive(True)
 
-    opacity_levels = [
-        (1.0, '100%'),
-        (0.9, '90%'),
-        (0.8, '80%'),
-        (0.7, '70%'),
-        (0.6, '60%'),
-        (0.5, '50%'),
-    ]
-
-    for opacity_value, opacity_name in opacity_levels:
+    for opacity_value, opacity_name in OPACITY_LEVELS:
         action = QAction(opacity_name, opacity_menu)
         action.setCheckable(True)
         action.setChecked(opacity_value == window._current_opacity)

@@ -1,6 +1,7 @@
 """Virtual keyboard widget with PyQt6."""
 
 import importlib
+import re
 import time
 
 from PyQt6.QtWidgets import (
@@ -119,10 +120,15 @@ class KeyArea(QWidget):
     up like a real keyboard and keys can span several rows.
     """
 
-    def __init__(self, margin: int, gap: int, on_resized=None, parent=None):
+    # Gap between keys relative to key size, so a small keyboard doesn't
+    # end up with gaps as wide as on a big one
+    GAP_RATIO = 0.06
+    MAX_GAP = 3
+
+    def __init__(self, on_resized=None, parent=None):
         super().__init__(parent)
-        self.margin = margin
-        self.gap = gap
+        self.margin = self.MAX_GAP + 1
+        self.gap = self.MAX_GAP
         self.on_resized = on_resized
         # (button, x, row, width, height) in key units / rows
         self.placements: list[tuple[QPushButton, float, int, float, int]] = []
@@ -139,7 +145,9 @@ class KeyArea(QWidget):
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        m, gap = self.margin, self.gap
+        rough_key = min(self.width() / self.total_units, self.height() / self.total_rows)
+        self.gap = gap = max(1, min(self.MAX_GAP, round(rough_key * self.GAP_RATIO)))
+        self.margin = m = gap + 1
         # One gap per key is taken off its right/bottom edge
         self.unit_w = (self.width() - 2 * m + gap) / self.total_units
         self.row_h = (self.height() - 2 * m + gap) / self.total_rows
@@ -212,18 +220,33 @@ class KeyboardWidget(QWidget):
         }
     """
 
-    KEY_GAP = 3      # px between keys
-    KEY_MARGIN = 4   # px around the key area (matches the window resize zone)
     LABEL_RATIO = 0.45  # label height relative to key height
-    SUGGESTION_COUNT = 3
+    SUGGESTION_COUNT = 5
+    MAX_SUGGESTIONS = 8
     SUGGESTION_BAR_HEIGHT = 36
 
     # A key held this long may have been repeated by the system, so we can
     # no longer tell how many characters it typed.
     REPEAT_GUARD_SECONDS = 0.5
 
-    # Keys that end the current word
-    WORD_BREAK_KEYS = {ecodes.KEY_SPACE, ecodes.KEY_ENTER, ecodes.KEY_TAB}
+    # Keys after which we can't know what comes before the cursor
+    # (Tab often moves to another field, Enter often sends a message), but
+    # a new word starts there
+    FRESH_START_KEYS = {ecodes.KEY_ENTER, ecodes.KEY_TAB}
+
+    # Keys that don't change the text before the cursor
+    NO_TEXT_KEYS = {
+        ecodes.KEY_DELETE, ecodes.KEY_ESC, ecodes.KEY_INSERT, ecodes.KEY_SYSRQ,
+        ecodes.KEY_SCROLLLOCK, ecodes.KEY_PAUSE, ecodes.KEY_COMPOSE,
+    }
+
+    # Stands for text we don't know (after arrow keys, shortcuts, ...)
+    UNKNOWN = '\0'
+    # How much typed text to remember
+    TEXT_LIMIT = 200
+    # A word at the end of the text: letters, with apostrophes inside
+    # ("isn't") or at the end while still typing ("isn'")
+    WORD_AT_END = re.compile(r"[^\W\d_]+(?:'[^\W\d_]+)*'?$")
 
     # Modifiers held on the virtual device until the next regular key
     STICKY_MODIFIERS = {
@@ -234,8 +257,11 @@ class KeyboardWidget(QWidget):
 
     SIDE_BLOCK_GAP = 0.5  # units between the main keys and the side block
 
-    def __init__(self, layout='de', parent=None):
+    def __init__(self, layout='de', suggestion_count=SUGGESTION_COUNT,
+                 next_word=True, parent=None):
         super().__init__(parent)
+        self.suggestion_count = suggestion_count
+        self.next_word_enabled = next_word
 
         self.emitter = InputEmitter()
         self.shift_active = False
@@ -245,10 +271,19 @@ class KeyboardWidget(QWidget):
         self.current_layout = layout
         self._current_scale = 1.0
 
-        # Word currently being typed. None means unknown (e.g. after the
-        # cursor moved), in which case nothing is suggested until the next
-        # word break.
+        # Text typed since the last fresh start, with UNKNOWN marking
+        # text we can't know. The word being typed and the one before it
+        # are read from its end.
+        self._text = ''
+        # (text, word, previous word) when a word was last counted, so
+        # backspacing right back into it can take the count back
+        self._last_finished: tuple[str, str, str | None] | None = None
         self.current_word: str | None = ''
+        self.previous_word: str | None = None
+        # True in password fields: no suggestions, nothing learned
+        self.private = False
+        # When an app last told us the text at the cursor (time.monotonic())
+        self.app_text_time = 0.0
         self._char_map: dict[str, tuple[int, bool]] = {}
         # button keycode -> (typed char, press time, modified, sent keycode)
         self._press_state: dict[int, tuple[str | None, float, bool, int]] = {}
@@ -259,13 +294,14 @@ class KeyboardWidget(QWidget):
         self._main_layout.setContentsMargins(0, 0, 0, 0)
         self._main_layout.setSpacing(0)
 
-        self._build_suggestion_bar()
-
         # Container widget for keyboard keys
         self._container = None
 
+        self._build_suggestion_bar()
+
         self._load_layout(layout)
         self._build_keyboard()
+        self._update_suggestions()
         self.setStyleSheet(self.BASE_STYLE)
 
     def _load_layout(self, name: str):
@@ -288,7 +324,7 @@ class KeyboardWidget(QWidget):
         self._load_layout(name)
         self._word_list = WordList.for_layout(name)
         self._rebuild_keyboard()
-        self._set_current_word('')
+        self.reset_text()
         self.layout_changed.emit(name)
 
     def _rebuild_keyboard(self):
@@ -315,25 +351,51 @@ class KeyboardWidget(QWidget):
         """Build the row of word suggestions above the keys."""
         self._suggestion_bar = QWidget()
         self._suggestion_bar.setFixedHeight(self.SUGGESTION_BAR_HEIGHT)
-        bar_layout = QHBoxLayout(self._suggestion_bar)
-        bar_layout.setContentsMargins(self.KEY_MARGIN, self.KEY_MARGIN, self.KEY_MARGIN, 0)
-        bar_layout.setSpacing(self.KEY_GAP)
+        self._bar_layout = QHBoxLayout(self._suggestion_bar)
+        self._bar_layout.setContentsMargins(4, 4, 4, 0)
+        self._bar_layout.setSpacing(3)
 
         self.suggestion_buttons: list[SuggestionButton] = []
-        for _ in range(self.SUGGESTION_COUNT):
-            btn = SuggestionButton()
-            btn.clicked.connect(lambda checked, b=btn: self._on_suggestion_clicked(b))
-            bar_layout.addWidget(btn)
-            self.suggestion_buttons.append(btn)
 
         # Shown while typing a word that isn't in the word list
         self.add_word_button = SuggestionButton()
         self.add_word_button.setObjectName('add_word')
         self.add_word_button.setToolTip('Add this word to the suggestions')
         self.add_word_button.clicked.connect(self._on_add_word_clicked)
-        bar_layout.addWidget(self.add_word_button)
+        self._bar_layout.addWidget(self.add_word_button)
 
         self._main_layout.addWidget(self._suggestion_bar)
+        self.set_suggestion_count(self.suggestion_count)
+
+    def set_suggestion_count(self, count: int):
+        """Show `count` suggestion slots."""
+        count = max(1, min(self.MAX_SUGGESTIONS, count))
+        self.suggestion_count = count
+        while len(self.suggestion_buttons) > count:
+            btn = self.suggestion_buttons.pop()
+            self._bar_layout.removeWidget(btn)
+            btn.deleteLater()
+        while len(self.suggestion_buttons) < count:
+            btn = SuggestionButton()
+            btn.setMouseTracking(True)
+            btn.clicked.connect(lambda checked, b=btn: self._on_suggestion_clicked(b))
+            # Before the add-word button
+            self._bar_layout.insertWidget(len(self.suggestion_buttons), btn)
+            self.suggestion_buttons.append(btn)
+        self._fit_labels()
+        self._update_suggestions()
+
+    def set_next_word(self, enabled: bool):
+        """Turn guessing the next word (after a space) on or off."""
+        self.next_word_enabled = enabled
+        self._update_suggestions()
+
+    @property
+    def word_list(self) -> WordList:
+        return self._word_list
+
+    def refresh_suggestions(self):
+        """Call after the word list was edited."""
         self._update_suggestions()
 
     def _build_char_map(self):
@@ -354,7 +416,7 @@ class KeyboardWidget(QWidget):
         """Build the keyboard UI in a container widget."""
         self._build_char_map()
 
-        self._container = KeyArea(self.KEY_MARGIN, self.KEY_GAP, on_resized=self._fit_labels)
+        self._container = KeyArea(on_resized=self._on_keys_resized)
 
         main_width = self._place_rows(self.LAYOUT, self.WIDE_KEYS, x_offset=0.0)
         if self.SIDE_BLOCK:
@@ -413,9 +475,16 @@ class KeyboardWidget(QWidget):
         self._suggestion_bar.setFixedHeight(int(self.SUGGESTION_BAR_HEIGHT * factor))
         self._fit_labels()
 
+    def _on_keys_resized(self):
+        """Give the suggestion bar the same gaps as the keys."""
+        area = self._container
+        self._bar_layout.setContentsMargins(area.margin, area.margin, area.margin, 0)
+        self._bar_layout.setSpacing(area.gap)
+        self._fit_labels()
+
     def _fit_labels(self):
         """Size labels from the actual key size so small keyboards stay readable."""
-        if not self._container:
+        if not self._container or not self._container.unit_w:
             return
         area = self._container
         key = min(area.row_h, area.unit_w) - area.gap
@@ -470,6 +539,8 @@ class KeyboardWidget(QWidget):
         label = button.shifted_label if apply_shift else button.normal_label
         is_char = len(label) == 1 and button.normal_label != button.shifted_label
         typed = label if is_char and sent == button.keycode else None
+        if sent == ecodes.KEY_SPACE:
+            typed = ' '
         modified = any(self.emitter.is_modifier_active(k) for k in self.STICKY_MODIFIERS)
         self._press_state[button.keycode] = (typed, time.monotonic(), modified, sent)
 
@@ -490,53 +561,121 @@ class KeyboardWidget(QWidget):
         self._update_ctrl_alt_buttons()
 
     def _track_word(self, keycode: int):
-        """Update the current word after a key was typed."""
+        """Update the remembered text after a key was typed."""
         state = self._press_state.pop(keycode, None)
         if state is None:
             return
-        typed, pressed_at, modified, _ = state
+        typed, pressed_at, modified, sent = state
         repeated = time.monotonic() - pressed_at >= self.REPEAT_GUARD_SECONDS
-        word = self.current_word
+        text = self._text
 
-        if keycode in self.WORD_BREAK_KEYS:
-            if word:
-                self._word_list.record_use(word)
-            word = ''
+        if sent in self.NO_TEXT_KEYS and not modified:
+            return
+        if sent in self.FRESH_START_KEYS and not modified:
+            self._finish_word()
+            text = ''
         elif modified or repeated:
             # Shortcut (Ctrl+V, AltGr chars, ...) or possibly repeated key
-            word = None
-        elif keycode == ecodes.KEY_BACKSPACE:
-            # Deleting past the start of the word lands in unknown text
-            word = word[:-1] if word else None
-        elif typed is not None and typed.isalpha():
-            if word is not None:
-                word += typed
+            text = self.UNKNOWN
+        elif sent == ecodes.KEY_BACKSPACE:
+            if not text:
+                # Deleting past the start lands in text we never saw
+                text = self.UNKNOWN
+            elif not text.endswith(self.UNKNOWN):
+                text = text[:-1]
+                if self._last_finished and self._last_finished[0] == text:
+                    # e.g. "hello," then backspace: still typing "hello"
+                    self._word_list.unrecord_use(*self._last_finished[1:])
+                    self._last_finished = None
         elif typed is not None:
-            # Digits and punctuation end the word
-            if word:
-                self._word_list.record_use(word)
-            word = ''
+            if not (typed.isalpha() or typed == "'"):
+                # Space, digits and punctuation end the word
+                self._finish_word()
+            text += typed
         else:
             # Arrows and other navigation keys move the cursor
-            word = None
+            text = self.UNKNOWN
 
-        self._set_current_word(word)
+        self._set_text(text)
 
-    def _set_current_word(self, word: str | None):
-        self.current_word = word
+    def _finish_word(self):
+        """Count the word just typed, and the word before it."""
+        if self.current_word and not self.private:
+            word = self.current_word.rstrip("'")
+            self._word_list.record_use(word, self.previous_word)
+            self._last_finished = (self._text, word, self.previous_word)
+
+    def reset_text(self):
+        """Forget the typed text, e.g. when the user switched to another text field."""
+        self.private = False
+        self._last_finished = None
+        self._set_text('')
+
+    def set_text_from_app(self, text: str, truncated: bool, private: bool):
+        """
+        Use the text before the cursor as reported by the app (through
+        accessibility). `truncated` means there is more text before it.
+        """
+        self.app_text_time = time.monotonic()
+        self.private = private
+        if private:
+            text, truncated = '', True
+        self._last_finished = None
+        self._set_text((self.UNKNOWN if truncated else '') + text.replace(self.UNKNOWN, ''))
+
+    def _set_text(self, text: str):
+        if len(text) > self.TEXT_LIMIT:
+            text = self.UNKNOWN + text[-self.TEXT_LIMIT:]
+        self._text = text
+        self.current_word, self.previous_word = self._words_at_end(text)
         self._update_suggestions()
+
+    def _words_at_end(self, text: str) -> tuple[str | None, str | None]:
+        """
+        (word being typed, word before it). The word being typed is ''
+        right after a space or punctuation, and None if we can't know it
+        (e.g. the cursor moved into the middle of a word). The word before
+        it is only given when just spaces separate the two.
+        """
+        match = self.WORD_AT_END.search(text)
+        if match:
+            start = match.start()
+            if start > 0 and text[start - 1] == self.UNKNOWN:
+                return None, None
+            word = match.group()
+        else:
+            if text.endswith(self.UNKNOWN):
+                return None, None
+            start = len(text)
+            word = ''
+
+        before = text[:start]
+        stripped = before.rstrip(' ')
+        if stripped == before or not stripped:
+            return word, None
+        prev = self.WORD_AT_END.search(stripped)
+        if not prev or (prev.start() > 0 and stripped[prev.start() - 1] == self.UNKNOWN):
+            return word, None
+        return word, prev.group().rstrip("'")
 
     def _update_suggestions(self):
         """Refresh the suggestion bar for the current word."""
+        typeable = set(self._char_map)
+        word = self.current_word
         words = []
-        if self.current_word:
+        if self.private:
+            word = None
+        elif word:
             words = self._word_list.complete(
-                self.current_word, set(self._char_map), self.SUGGESTION_COUNT)
+                word, typeable, self.suggestion_count, self.previous_word)
+        elif word == '' and self.next_word_enabled:
+            words = self._word_list.predict(
+                self.previous_word, typeable, self.suggestion_count)
         for i, btn in enumerate(self.suggestion_buttons):
             btn.set_word(words[i] if i < len(words) else '')
 
-        word = self.current_word
-        can_add = bool(word) and len(word) >= 2 and not self._word_list.is_known(word)
+        can_add = (bool(word) and len(word) >= 2 and "'" not in word[-1:]
+                   and not self._word_list.is_known(word))
         self.add_word_button.word = word if can_add else ''
         self.add_word_button.setText(f'+ {word}' if can_add else '')
         self.add_word_button.setVisible(can_add)
@@ -550,24 +689,31 @@ class KeyboardWidget(QWidget):
     def _on_suggestion_clicked(self, button: SuggestionButton):
         """Type the rest of the suggested word plus a space."""
         prefix = self.current_word
-        if not button.word or not prefix or not button.word.startswith(prefix):
+        if not button.word or prefix is None:
             return
 
         # Sticky Ctrl/Alt would turn the letters into shortcuts
         self.emitter.release_all_modifiers()
         self._update_ctrl_alt_buttons()
 
-        for ch in button.word[len(prefix):] + ' ':
+        # Keep what matches, erase the rest ("dont" -> "don't" erases "t")
+        keep = 0
+        while keep < min(len(prefix), len(button.word)) and prefix[keep] == button.word[keep]:
+            keep += 1
+        for _ in range(len(prefix) - keep):
+            self.emitter.send_key(ecodes.KEY_BACKSPACE)
+        for ch in button.word[keep:] + ' ':
             keycode, with_shift = self._char_map[ch]
             self.emitter.send_key(keycode, with_shift=with_shift)
-        self._word_list.record_use(button.word)
+        if not self.private:
+            self._word_list.record_use(button.word, self.previous_word)
 
         if self.shift_active:
             self.shift_active = False
             self._update_shift_buttons(False)
             self._update_all_labels()
 
-        self._set_current_word('')
+        self._set_text(self._text[:len(self._text) - len(prefix)] + button.word + ' ')
 
     def _update_modifier_state(self, button: KeyButton, active: bool):
         """Update visual state of a modifier button."""

@@ -55,10 +55,19 @@ SIDE_BLOCK = [
     [('Pause', 'Pause', ecodes.KEY_PAUSE)],
 ]
 
+# For layouts that have Del in the main block (US)
+SIDE_BLOCK_NO_DEL = [
+    [('Home', 'Home', ecodes.KEY_HOME), ('End', 'End', ecodes.KEY_END)],
+    [('PgUp', 'PgUp', ecodes.KEY_PAGEUP), ('PgDn', 'PgDn', ecodes.KEY_PAGEDOWN)],
+    [('Insert', 'Insert', ecodes.KEY_INSERT), ('PrtScn', 'PrtScn', ecodes.KEY_SYSRQ)],
+    [('ScrLk', 'ScrLk', ecodes.KEY_SCROLLLOCK), ('Pause', 'Pause', ecodes.KEY_PAUSE)],
+]
+
 SIDE_WIDE_KEYS = {
     ecodes.KEY_HOME: 1.5, ecodes.KEY_END: 1.5,
     ecodes.KEY_INSERT: 1.5, ecodes.KEY_DELETE: 1.5,
     ecodes.KEY_SYSRQ: 1.5, ecodes.KEY_SCROLLLOCK: 1.5,
+    ecodes.KEY_PAGEUP: 1.5, ecodes.KEY_PAGEDOWN: 1.5,
     ecodes.KEY_PAUSE: 3.0,
 }
 

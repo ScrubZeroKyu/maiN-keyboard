@@ -7,6 +7,7 @@ arch=('any')
 url="https://github.com/cachyOSMaiN/maiN-keyboard"
 license=('MIT')
 depends=('python' 'python-pyqt6' 'python-evdev')
+optdepends=('python-gobject: follow text fields through accessibility' 'at-spi2-core: follow text fields through accessibility')
 makedepends=('git')
 provides=('main-keyboard')
 conflicts=('main-keyboard')
@@ -27,6 +28,8 @@ package() {
     install -Dm644 keyboard.py "$pkgdir/usr/share/$pkgname/keyboard.py"
     install -Dm644 input_emitter.py "$pkgdir/usr/share/$pkgname/input_emitter.py"
     install -Dm644 suggestions.py "$pkgdir/usr/share/$pkgname/suggestions.py"
+    install -Dm644 options.py "$pkgdir/usr/share/$pkgname/options.py"
+    install -Dm644 focus_watch.py "$pkgdir/usr/share/$pkgname/focus_watch.py"
     install -Dm644 layouts/__init__.py "$pkgdir/usr/share/$pkgname/layouts/__init__.py"
     install -Dm644 layouts/de.py "$pkgdir/usr/share/$pkgname/layouts/de.py"
     install -Dm644 layouts/uk.py "$pkgdir/usr/share/$pkgname/layouts/uk.py"

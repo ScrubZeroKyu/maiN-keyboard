@@ -3,12 +3,14 @@
 from evdev import ecodes
 
 from layouts.common import (
-    BOTTOM_ROW, COMMON_WIDE_KEYS, FN_KEYS, MODIFIER_KEYS, SIDE_BLOCK, SIDE_WIDE_KEYS,
+    BOTTOM_ROW, COMMON_WIDE_KEYS, FN_KEYS, MODIFIER_KEYS, SIDE_BLOCK_NO_DEL as SIDE_BLOCK,
+    SIDE_WIDE_KEYS,
 )
 
 # Key definitions: (normal_char, shift_char, keycode)
 # For special keys, normal_char is the display label.
-# Every row is 15.5 units wide so the arrow keys line up.
+# Every row is 15.5 units wide so the arrow keys line up. Del sits right
+# of \ like on the Windows on-screen keyboard.
 
 LAYOUT = [
     # Row 1: Number row
@@ -45,6 +47,7 @@ LAYOUT = [
         ('[', '{', ecodes.KEY_LEFTBRACE),
         (']', '}', ecodes.KEY_RIGHTBRACE),
         ('\\', '|', ecodes.KEY_BACKSLASH),
+        ('Del', 'Del', ecodes.KEY_DELETE),
     ],
     # Row 3: Home row
     [
@@ -86,7 +89,6 @@ LAYOUT = [
 WIDE_KEYS = {
     **COMMON_WIDE_KEYS,
     ecodes.KEY_TAB: 1.5,
-    ecodes.KEY_BACKSLASH: 2.0,
     ecodes.KEY_ENTER: 2.75,
     ecodes.KEY_LEFTSHIFT: 2.5,
     ecodes.KEY_RIGHTSHIFT: 2.0,

@@ -10,6 +10,8 @@ install:
 	install -Dm644 keyboard.py $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/keyboard.py
 	install -Dm644 input_emitter.py $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/input_emitter.py
 	install -Dm644 suggestions.py $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/suggestions.py
+	install -Dm644 options.py $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/options.py
+	install -Dm644 focus_watch.py $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/focus_watch.py
 	install -Dm644 layouts/__init__.py $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/layouts/__init__.py
 	install -Dm644 layouts/de.py $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/layouts/de.py
 	install -Dm644 layouts/uk.py $(DESTDIR)$(PREFIX)/share/$(PKGNAME)/layouts/uk.py

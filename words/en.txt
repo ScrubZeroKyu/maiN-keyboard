@@ -2,19 +2,39 @@
 # Source: FrequencyWords by Hermit Dave (OpenSubtitles 2018),
 # https://github.com/hermitdave/FrequencyWords, CC-BY-SA-4.0.
 you
+I'm
+I'll
+I've
+I'd
+you're
+you'll
+you've
+you'd
 the
 to
 it
+it's
+it'll
 and
 that
+that's
+that'll
 of
 is
 in
 what
+what's
 we
+we're
+we'll
+we've
+we'd
 me
 this
 he
+he's
+he'll
+he'd
 for
 my
 on
@@ -26,20 +46,30 @@ no
 not
 be
 are
-don
+don't
 know
 can
+can't
 with
 but
 all
 so
 just
 there
+there's
 here
+here's
 they
+they're
+they'll
+they've
+they'd
 like
 get
 she
+she's
+she'll
+she'd
 go
 if
 right
@@ -55,6 +85,7 @@ come
 well
 her
 how
+how's
 yeah
 will
 got
@@ -65,9 +96,11 @@ see
 did
 good
 who
+who's
 why
 from
 let
+let's
 his
 yes
 when
@@ -81,6 +114,7 @@ us
 would
 them
 where
+where's
 were
 take
 then
@@ -96,7 +130,7 @@ some
 say
 hey
 could
-didn
+didn't
 by
 need
 something
@@ -155,6 +189,7 @@ stop
 call
 after
 won
+won't
 talk
 away
 than
@@ -178,7 +213,7 @@ leave
 does
 money
 around
-doesn
+doesn't
 name
 place
 ever
@@ -188,7 +223,7 @@ father
 guy
 made
 old
-isn
+isn't
 which
 big
 lot
@@ -249,7 +284,7 @@ hi
 dead
 many
 mind
-wasn
+wasn't
 friend
 best
 mom
@@ -266,7 +301,7 @@ real
 without
 baby
 room
-wouldn
+wouldn't
 already
 move
 most
@@ -293,7 +328,7 @@ also
 pretty
 bit
 took
-haven
+haven't
 yet
 men
 whole
@@ -324,7 +359,7 @@ saying
 phone
 play
 looks
-couldn
+couldn't
 problem
 few
 friends
@@ -392,7 +427,7 @@ its
 whatever
 eyes
 shut
-aren
+aren't
 hit
 taking
 easy
@@ -419,7 +454,7 @@ quite
 four
 anyway
 close
-ain
+ain't
 party
 fun
 against
@@ -548,7 +583,7 @@ dinner
 sighs
 sort
 leaving
-shouldn
+shouldn't
 running
 boss
 alright
@@ -650,7 +685,7 @@ coffee
 return
 secret
 weeks
-weren
+weren't
 date
 seeing
 fall
@@ -773,7 +808,7 @@ michael
 hotel
 christmas
 attack
-hasn
+hasn't
 round
 expect
 sing
@@ -1131,7 +1166,7 @@ drinking
 press
 bother
 foot
-hadn
+hadn't
 blame
 crap
 drugs
@@ -1922,7 +1957,6 @@ plant
 bless
 warning
 knocking
-re
 crash
 bedroom
 lower
@@ -2351,7 +2385,6 @@ separate
 cleaning
 california
 lf
-ll
 shift
 elizabeth
 chicago
@@ -2462,7 +2495,7 @@ chosen
 engaged
 julia
 charming
-mustn
+mustn't
 anger
 spending
 learning
@@ -3275,7 +3308,6 @@ dennis
 benefit
 adventure
 territory
-ve
 apology
 dylan
 unlike
@@ -3848,7 +3880,6 @@ blonde
 catching
 exposed
 canada
-dont
 han
 von
 comedy
@@ -5086,7 +5117,6 @@ muscles
 kidney
 finishing
 products
-im
 wu
 invasion
 affection
@@ -5997,7 +6027,7 @@ buys
 disorder
 interrupting
 sadness
-needn
+needn't
 cease
 barnes
 scoundrel
@@ -7366,7 +7396,6 @@ puke
 hysterical
 taller
 employment
-thats
 agrees
 dodge
 unite
@@ -9811,7 +9840,6 @@ cologne
 accusation
 outsider
 serum
-whats
 spaces
 oral
 shades
@@ -13245,7 +13273,6 @@ snarls
 chiu
 flawless
 considers
-youre
 harmful
 horseback
 owens
@@ -13868,7 +13895,6 @@ maternal
 harass
 stomp
 cheeseburger
-didnt
 chime
 oppression
 resembles
@@ -15858,7 +15884,6 @@ quincy
 shalom
 toil
 weiss
-hes
 alexandria
 sdi
 epi
@@ -17341,7 +17366,6 @@ palaces
 delaware
 hurley
 faction
-ive
 rooney
 nominees
 sleepwalking
@@ -17359,7 +17383,6 @@ sobriety
 beka
 gulp
 intensifies
-theres
 heirloom
 merrily
 unified

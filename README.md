@@ -21,10 +21,11 @@ Many on-screen keyboards have issues under Wayland:
 - **Dark design** - Modern iOS-style buttons with 3D shadow effect
 - **Adjustable opacity** - Set transparency (50%-100%) via tray menu
 - **Multiple layouts** - German (DE), English UK, English US
-- **Word suggestions** - Tap a suggestion to finish the word. Words you use often come first; tap **+ word** to add a new one (English list of 20,000 words, small German list)
+- **Word suggestions** - Tap a suggestion to finish the word. After a space it guesses the next word from the words you usually type together. Words you use often come first; tap **+ word** to add a new one (English list of 20,000 words, small German list)
 - **Key repeat** - Hold a key to repeat it, using KDE's repeat settings
-- **Layout switching** - Button in title bar or via tray menu
-- **Resizable** - Drag any edge or corner to resize (down to half the default size)
+- **Knows when you move to another text field** - Suggestions start fresh after a click or touch outside the keyboard. Apps that support accessibility (GTK, Qt/KDE, Firefox) also report the text before the cursor, so suggestions stay right after clicking around, and password fields are never learned from (needs `python-gobject` and `at-spi2-core`)
+- **Options** - ⚙ button in the title bar (or tray menu): layout, opacity, number of suggestions, next-word guessing, remove added words, block words you never want suggested
+- **Resizable** - Drag the white-outlined edge or a corner to resize (down to half the default size)
 - **Monitor switching** - Move active window between monitors
 - **System Tray** - Minimizes to taskbar
 - **Saves settings** - Remembers size, layout, and opacity

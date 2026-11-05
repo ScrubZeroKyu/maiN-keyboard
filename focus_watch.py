@@ -35,12 +35,18 @@ class ClickWatcher(QObject):
 
     PRIMARY = {ecodes.BTN_LEFT, ecodes.BTN_TOUCH}
 
+    MOTION = {ecodes.EV_REL: {ecodes.REL_X, ecodes.REL_Y},
+              ecodes.EV_ABS: {ecodes.ABS_X, ecodes.ABS_Y}}
+
     RESCAN_SECONDS = 5  # look for newly plugged-in mice this often
     BUTTONS = {ecodes.BTN_LEFT, ecodes.BTN_RIGHT, ecodes.BTN_MIDDLE}
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._stop = threading.Event()
+        # Goes up whenever a mouse, touchpad or touchscreen moves. Read from
+        # the main thread to tell whether X still follows the cursor.
+        self.motion = 0
         self._thread = threading.Thread(target=self._run, name='click-watcher', daemon=True)
 
     def start(self):
@@ -99,6 +105,9 @@ class ClickWatcher(QObject):
                     # Unplugged; the next scan drops it
                     continue
                 for e in events:
+                    if e.code in self.MOTION.get(e.type, ()):
+                        self.motion += 1
+                        continue
                     if e.type != ecodes.EV_KEY or e.code not in watched or e.value == 2:
                         continue
                     if e.value == 1:

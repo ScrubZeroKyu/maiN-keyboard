@@ -416,6 +416,48 @@ class VirtualKeyboard(QWidget):
         self._click_watcher.clicked.connect(self._on_outside_click)
         self._click_watcher.primary.connect(self._on_primary_button)
         self._click_watcher.start()
+        # Watch whether X still knows where the cursor is (see _pointer_stale)
+        self._seen_motion = 0
+        self._seen_pos = QCursor.pos()
+        self._pointer_stale = False
+        self._leave_pos = None  # cursor position when it last left the keyboard
+        self._pointer_timer = QTimer(self)
+        self._pointer_timer.timeout.connect(self._check_pointer)
+        self._pointer_timer.start(self.POINTER_CHECK_MS)
+
+    # --- Is the cursor position real? ---
+    #
+    # The keyboard runs through X (XWayland). Over a native Wayland window
+    # X stops hearing about the cursor and keeps reporting where it last
+    # saw it, often right over the keyboard. Then a click anywhere looks
+    # like a click on a key that never arrived, and the stand-in below
+    # would press that key. So: if the mouse moved but the cursor position
+    # X reports did not, that position is stale and can't be trusted.
+
+    # Leaving the keyboard is also when X loses track of the cursor if it
+    # moves onto a Wayland window. If the cursor then stops right away the
+    # movement check never notices, so remember where it left: while X
+    # still reports that exact spot, the position is stale. (Over a game's
+    # X window the position keeps changing, so the stand-in still works.)
+
+    POINTER_CHECK_MS = 50
+
+    def leaveEvent(self, event):
+        self._leave_pos = QCursor.pos()
+        super().leaveEvent(event)
+
+    def enterEvent(self, event):
+        self._leave_pos = None
+        super().enterEvent(event)
+
+    def _check_pointer(self):
+        motion = self._click_watcher.motion
+        if motion == self._seen_motion:
+            return
+        self._seen_motion = motion
+        pos = QCursor.pos()
+        self._pointer_stale = pos == self._seen_pos
+        self._seen_pos = pos
 
     # --- Clicking the keyboard while a game has grabbed the mouse ---
     #
@@ -431,8 +473,10 @@ class VirtualKeyboard(QWidget):
 
     def _on_primary_button(self, pressed: bool):
         if pressed:
+            self._check_pointer()  # include movement right before the click
             pos = QCursor.pos()
-            if not self.isVisible() or not self.frameGeometry().contains(pos):
+            if (self._pointer_stale or pos == self._leave_pos or not self.isVisible()
+                    or not self.frameGeometry().contains(pos)):
                 return
             self._grab_press = {'time': time.monotonic(), 'pos': pos,
                                 'released': False, 'target': None}

@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
     QSystemTrayIcon, QMenu
 )
 from PyQt6.QtCore import Qt, QObject, QEvent, QRect, QTimer
-from PyQt6.QtGui import QGuiApplication, QIcon, QAction, QActionGroup, QColor, QPainter, QPen
+from PyQt6.QtGui import QCursor, QMouseEvent, QGuiApplication, QIcon, QAction, QActionGroup, QColor, QPainter, QPen
 
 from keyboard import KeyboardWidget, AVAILABLE_LAYOUTS, LAYOUT_NAMES
 from options import OPACITY_LEVELS, OptionsDialog
@@ -362,7 +362,8 @@ class VirtualKeyboard(QWidget):
         QApplication.instance().installEventFilter(self._press_tracker)
 
         # Start a fresh word when the user goes to type somewhere else
-        self.set_click_reset(self.click_reset_enabled, save=False)
+        self._grab_press = None
+        self._start_click_watcher()
         self.set_accessibility(self.accessibility_enabled, save=False)
 
         self._position_at_bottom()
@@ -406,16 +407,72 @@ class VirtualKeyboard(QWidget):
     def set_click_reset(self, enabled: bool, save: bool = True):
         """Start a new word after any click or touch outside the keyboard."""
         self.click_reset_enabled = enabled
-        if enabled and not self._click_watcher:
-            self._click_watcher = ClickWatcher(self)
-            self._click_watcher.clicked.connect(self._on_outside_click)
-            self._click_watcher.start()
-        elif not enabled and self._click_watcher:
-            self._click_watcher.clicked.disconnect()
-            self._click_watcher.stop()
-            self._click_watcher = None
         if save:
             self._save_setting('click_reset', enabled)
+
+    def _start_click_watcher(self):
+        """Read clicks straight from the mouse (see focus_watch.py)."""
+        self._click_watcher = ClickWatcher(self)
+        self._click_watcher.clicked.connect(self._on_outside_click)
+        self._click_watcher.primary.connect(self._on_primary_button)
+        self._click_watcher.start()
+
+    # --- Clicking the keyboard while a game has grabbed the mouse ---
+    #
+    # Fullscreen games (e.g. through Wine/Proton) can grab the mouse, so
+    # every click goes to the game even over the keyboard. The mouse
+    # device still tells us about the click and X still tells us where the
+    # cursor is, so when a click on the keyboard never reaches it, the
+    # keyboard passes the click on to the key itself. The game sees that
+    # click too; nothing can take it away from the game.
+
+    # How long the normal click may take to reach us before we stand in
+    GRAB_CHECK_MS = 80
+
+    def _on_primary_button(self, pressed: bool):
+        if pressed:
+            pos = QCursor.pos()
+            if not self.isVisible() or not self.frameGeometry().contains(pos):
+                return
+            self._grab_press = {'time': time.monotonic(), 'pos': pos,
+                                'released': False, 'target': None}
+            QTimer.singleShot(self.GRAB_CHECK_MS, self._check_grabbed_press)
+        elif self._grab_press:
+            press = self._grab_press
+            if press['target'] is not None:
+                self._send_mouse(press['target'], QEvent.Type.MouseButtonRelease, press['pos'])
+                self._grab_press = None
+            else:
+                # Released before the check ran; it finishes the click
+                press['released'] = True
+
+    def _check_grabbed_press(self):
+        press = self._grab_press
+        if press is None:
+            return
+        if self._press_tracker.last_press >= press['time'] - 0.15:
+            # The keyboard got the click the normal way
+            self._grab_press = None
+            return
+        target = self.childAt(self.mapFromGlobal(press['pos'])) or self
+        press['target'] = target
+        self._send_mouse(target, QEvent.Type.MouseButtonPress, press['pos'])
+        if press['released']:
+            self._send_mouse(target, QEvent.Type.MouseButtonRelease, press['pos'])
+            self._grab_press = None
+
+    @staticmethod
+    def _send_mouse(widget: QWidget, etype: QEvent.Type, global_pos):
+        buttons = (Qt.MouseButton.LeftButton if etype == QEvent.Type.MouseButtonPress
+                   else Qt.MouseButton.NoButton)
+        local = widget.mapFromGlobal(global_pos).toPointF()
+        event = QMouseEvent(etype, local, global_pos.toPointF(), Qt.MouseButton.LeftButton,
+                            buttons, Qt.KeyboardModifier.NoModifier)
+        # Our own stand-in click must not count as the keyboard receiving one
+        tracker = widget.window()._press_tracker
+        last_press = tracker.last_press
+        QApplication.sendEvent(widget, event)
+        tracker.last_press = last_press
 
     def set_accessibility(self, enabled: bool, save: bool = True):
         """Follow text field focus and the text at the cursor through AT-SPI."""
@@ -436,6 +493,11 @@ class VirtualKeyboard(QWidget):
             self._save_setting('accessibility', enabled)
 
     def _on_outside_click(self):
+        if not self.click_reset_enabled:
+            return
+        # Clicks on the keyboard itself (also while a game has the mouse)
+        if self.isVisible() and self.frameGeometry().contains(QCursor.pos()):
+            return
         clicked_at = time.monotonic()
         QTimer.singleShot(self.CLICK_SETTLE_MS, lambda: self._after_click(clicked_at))
 
@@ -528,6 +590,21 @@ class VirtualKeyboard(QWidget):
         self._save_setting('opacity', opacity)
         if self._options_dialog:
             self._options_dialog.refresh()
+
+    def shutdown(self):
+        """Stop background watchers and save settings before quitting."""
+        app = QApplication.instance()
+        app.removeEventFilter(self._resizer)
+        app.removeEventFilter(self._press_tracker)
+        if self._click_watcher:
+            self._click_watcher.stop()
+        if self._a11y_watcher:
+            self._a11y_watcher.stop()
+        config = load_config()
+        config['width'] = self.width()
+        config['height'] = self.height()
+        config['layout'] = self._current_layout
+        save_config(config)
 
     def keyPressEvent(self, event):
         if event.key() == Qt.Key.Key_Escape:
@@ -642,7 +719,13 @@ def main():
     tray.activated.connect(lambda reason: window.setVisible(not window.isVisible()) if reason == QSystemTrayIcon.ActivationReason.Trigger else None)
     tray.show()
 
-    sys.exit(app.exec())
+    code = app.exec()
+    window.shutdown()
+    # Skip Python's own cleanup: it deletes Qt objects in an order that
+    # can crash PyQt on exit. Everything worth keeping is saved by now.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
 
 
 if __name__ == '__main__':

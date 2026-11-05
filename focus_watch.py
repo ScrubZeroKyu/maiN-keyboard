@@ -24,9 +24,16 @@ OWN_DEVICE_NAME = 'Virtual-OSK'
 
 
 class ClickWatcher(QObject):
-    """Emits `clicked` for every mouse button press or screen touch."""
+    """
+    Emits `clicked` for every mouse button press or screen touch, and
+    `primary(pressed)` for each press and release of the left button or a
+    touch (used to click the keyboard when a game has grabbed the mouse).
+    """
 
     clicked = pyqtSignal()
+    primary = pyqtSignal(bool)
+
+    PRIMARY = {ecodes.BTN_LEFT, ecodes.BTN_TOUCH}
 
     RESCAN_SECONDS = 5  # look for newly plugged-in mice this often
     BUTTONS = {ecodes.BTN_LEFT, ecodes.BTN_RIGHT, ecodes.BTN_MIDDLE}
@@ -91,9 +98,13 @@ class ClickWatcher(QObject):
                 except OSError:
                     # Unplugged; the next scan drops it
                     continue
-                if any(e.type == ecodes.EV_KEY and e.value == 1 and e.code in watched
-                       for e in events):
-                    self.clicked.emit()
+                for e in events:
+                    if e.type != ecodes.EV_KEY or e.code not in watched or e.value == 2:
+                        continue
+                    if e.value == 1:
+                        self.clicked.emit()
+                    if e.code in self.PRIMARY:
+                        self.primary.emit(e.value == 1)
         for device, _ in devices.values():
             device.close()
 
